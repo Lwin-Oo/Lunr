@@ -23,6 +23,8 @@ struct LunrDashboard: View {
     @State private var behaviorLog: String = ""
     @State private var terminalLog: String = ""
     @State private var timer: Timer? = nil
+    @StateObject private var screenRecorder = ScreenRecorder()
+
 
     var body: some View {
         ScrollView {
@@ -122,6 +124,18 @@ struct LunrDashboard: View {
         }
     }
 
+    private func startLogging() {
+            isLogging = true
+            screenRecorder.start() // ✅ start screen OCR
+            DispatchQueue.global(qos: .background).async { runLogger() }
+    }
+    
+    private func stopLogging() {
+            stopLogger()
+            screenRecorder.stop() // ✅ stop screen OCR
+            isLogging = false
+    }
+    
     private func totalFormattedTime() -> String {
         let total = usageStats.map(\.duration).reduce(0, +)
         return "\(total / 60)m \(total % 60)s"
@@ -136,16 +150,6 @@ struct LunrDashboard: View {
             self.usageStats = parseAppUsage(from: usageText)
             self.terminalLog = usageText
         }
-    }
-
-    private func startLogging() {
-        isLogging = true
-        DispatchQueue.global(qos: .background).async { runLogger() }
-    }
-
-    private func stopLogging() {
-        stopLogger()
-        isLogging = false
     }
 
     private func latestLogFilename() -> String {

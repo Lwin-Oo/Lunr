@@ -7,6 +7,8 @@
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <ApplicationServices/ApplicationServices.h>
 #include <iostream>
 #include <unordered_map>
 #include <string>
@@ -21,6 +23,11 @@
 #include <numeric>
 #include <filesystem>
 #include <memory>
+#include <regex>
+
+#import "BridgedClassifier.h" // ✅ C bridge header (calls Swift class)
+
+// DO NOT import "Lunr-Swift.h" — causes build issues
 
 using Clock = std::chrono::system_clock;
 using Seconds = std::chrono::seconds;
@@ -45,14 +52,7 @@ std::unordered_map<std::string, std::string> appCategory = {
     {"YouTube", "Entertainment"},
     {"Twitter", "Social"},
     {"Instagram", "Social"},
-    {"Messages", "Social"},
-    {"Chrome: youtube.com", "Entertainment"},
-    {"Chrome: twitter.com", "Social"},
-    {"Chrome: netflix.com", "Entertainment"},
-    {"Chrome: slack.com", "Work"},
-    {"Chrome: github.com", "Work"},
-    {"Chrome: reddit.com", "Entertainment"},
-    {"Chrome: linkedin.com", "Work"}
+    {"Messages", "Social"}
 };
 
 static std::atomic<bool> stopLogging(false);
@@ -65,58 +65,88 @@ std::string getLunrAppSupportPath() {
     return std::string([supportPath UTF8String]);
 }
 
-std::string getFrontmostApp() {
-    NSRunningApplication* frontmost = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    NSString* name = [frontmost localizedName];
-    return std::string([name UTF8String]);
+std::string extractDomainFromTitle(const std::string& title) {
+    std::regex pattern("[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}");
+    std::smatch match;
+    if (std::regex_search(title, match, pattern)) {
+        return match[0];
+    }
+    return title;
 }
 
-std::string getChromeDomain() {
-    __block std::string domain = "unknown";
+std::string getWindowTitleFromAX(pid_t pid) {
+    AXUIElementRef appRef = AXUIElementCreateApplication(pid);
+    AXUIElementRef windowRef = nullptr;
+    CFTypeRef titleRef = nullptr;
+    std::string title = "";
 
-    if ([[NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.google.Chrome"] count] == 0) {
-        std::cerr << "🚫 Chrome is not running.\n";
-        return "unknown";
+    if (AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute, (CFTypeRef *)&windowRef) == kAXErrorSuccess && windowRef) {
+        if (AXUIElementCopyAttributeValue(windowRef, kAXTitleAttribute, &titleRef) == kAXErrorSuccess && titleRef) {
+            char buffer[1024];
+            if (CFStringGetCString((CFStringRef)titleRef, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+                title = std::string(buffer);
+            }
+            CFRelease(titleRef);
+        }
+        CFRelease(windowRef);
+    }
+    CFRelease(appRef);
+    return title;
+}
+
+std::string getFrontmostAppNameAndTitle() {
+    if (!AXIsProcessTrusted()) {
+        NSLog(@"❌ Accessibility not granted. Add the app to System Settings > Privacy & Security > Accessibility");
+        return "Not Authorized";
     }
 
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        NSString *scriptSource = @"\
-            tell application \"Google Chrome\"\n\
-                set theTab to active tab of front window\n\
-                return URL of theTab\n\
-            end tell";
+    NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (!frontApp) return "Unknown";
 
-        NSAppleScript *script = [[NSAppleScript alloc] initWithSource:scriptSource];
-        NSDictionary *errorDict = nil;
-        NSAppleEventDescriptor *result = [script executeAndReturnError:&errorDict];
+    std::string appName = [[frontApp localizedName] UTF8String];
+    pid_t pid = [frontApp processIdentifier];
+    std::string title = getWindowTitleFromAX(pid);
 
-        if (!result) {
-            std::cerr << "🚫 AppleScript Error: " << [[errorDict description] UTF8String] << "\n";
-            return;
+    if (title.empty()) {
+        CFArrayRef windowList = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+        if (!windowList) return appName;
+        for (NSDictionary* entry in (__bridge NSArray*)windowList) {
+            NSNumber* windowPID = entry[(id)kCGWindowOwnerPID];
+            if ([windowPID intValue] == pid) {
+                NSString* fallbackTitle = entry[(id)kCGWindowName];
+                if (fallbackTitle && [fallbackTitle length] > 0) {
+                    title = [[fallbackTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] UTF8String];
+                    break;
+                }
+            }
         }
+        CFRelease(windowList);
+    }
 
-        NSString *urlString = [result stringValue];
-        NSURL *url = [NSURL URLWithString:urlString];
-        if (!url || !url.host) {
-            std::cerr << "❌ Failed to parse Chrome tab URL\n";
-            return;
+    // Domain classification for browser
+    if ((appName == "Google Chrome" || appName == "Safari") && !title.empty()) {
+        std::regex pattern("[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}");
+        std::smatch match;
+        if (std::regex_search(title, match, pattern)) {
+            title = match[0];
         }
+    }
 
-        domain = std::string([[url.host lowercaseString] UTF8String]);
-    });
+    // ✅ Call AI classifier via bridge
+    const char* result = classifyContentText(title.c_str());
+    std::string classification = result ? std::string(result) : "Unknown";
 
-    return domain;
+    NSLog(@"🧪 AX Extracted App: %s | Title: %s | 🧠 Class: %s", appName.c_str(), title.c_str(), classification.c_str());
+
+    std::ofstream debug("/tmp/lunr_debug.log", std::ios::app);
+    debug << "App: " << appName << " | Title: " << title << " | Class: " << classification << "\n";
+    debug.close();
+
+    return appName + ": " + title + " [" + classification + "]";
 }
 
 std::string getSmartAppName() {
-    std::string app = getFrontmostApp();
-    if (app == "Google Chrome") {
-        std::string domain = getChromeDomain();
-        if (domain != "unknown") {
-            return "Chrome: " + domain;
-        }
-    }
-    return app;
+    return getFrontmostAppNameAndTitle();
 }
 
 std::string getCurrentDateString() {
@@ -231,42 +261,6 @@ void startBehaviorAnalyzer(std::shared_ptr<std::unordered_map<std::string, AppSe
 
 extern "C" void runLogger() {
     stopLogging = false;
-
-    // 🚨 Prompt Automation access
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        // Wait for Chrome to fully launch (max 5 seconds)
-        int retries = 10;
-        while (retries-- > 0) {
-            NSArray *runningApps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.google.Chrome"];
-            if (runningApps.count > 0) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
-
-        NSArray *runningApps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.google.Chrome"];
-        if (runningApps.count == 0) {
-            NSLog(@"🚫 Chrome did not launch in time. Skipping AppleScript.");
-            return;
-        }
-
-        NSString *script = @"\
-            tell application \"Google Chrome\"\n\
-                if (count of windows) > 0 then\n\
-                    set theTab to active tab of front window\n\
-                    set theURL to URL of theTab\n\
-                end if\n\
-            end tell";
-
-        NSAppleScript *appleScript = [[NSAppleScript alloc] initWithSource:script];
-        NSDictionary *err = nil;
-        [appleScript executeAndReturnError:&err];
-
-        if (err) {
-            NSLog(@"🚫 Automation error: %@", err);
-        } else {
-            NSLog(@"✅ Chrome Automation succeeded");
-        }
-    });
-
 
     auto sharedSessions = std::make_shared<std::unordered_map<std::string, AppSession>>();
     std::string currentApp = getSmartAppName();
