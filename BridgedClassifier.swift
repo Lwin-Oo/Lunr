@@ -9,10 +9,25 @@ import Foundation
 
 @objc public class BridgedClassifier: NSObject {
     @objc public static func classifyText(_ text: String) -> NSString {
-        let result = classify_with_llama(text)
-        return NSString(utf8String: result) ?? "Unknown"
+        var result: NSString = "Unknown"
+
+        let semaphore = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let ptr = classify_with_llama(text) {
+                result = NSString(utf8String: ptr) ?? "Unknown"
+            }
+            semaphore.signal()
+        }
+
+        // Wait max 3 seconds to avoid freeze
+        _ = semaphore.wait(timeout: .now() + 3)
+
+        return result
     }
 }
+
+
 
 
 

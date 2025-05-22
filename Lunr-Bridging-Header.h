@@ -1,6 +1,7 @@
 //
 //  Use this file to import your target's public headers that you would like to expose to Swift.
 //
+#import "LlamaBridge.h"
 
 #import "SystemObserverBridge.h"
 #import "BridgedClassifier.h"           // ✅ Declare classifier bridge here only if needed
