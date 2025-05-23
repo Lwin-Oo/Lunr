@@ -11,8 +11,10 @@
 extern "C" {
 #endif
 
-const char* classify_with_llama(const char* text);
+const char* classify_with_llama(const char* inputText);
 
 #ifdef __cplusplus
 }
 #endif
+
+
