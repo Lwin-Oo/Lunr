@@ -9,15 +9,16 @@ import SwiftUI
 
 @main
 struct LunrApp: App {
-    let persistenceController = PersistenceController.shared
+    @StateObject private var userManager = UserManager.shared
 
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                OnboardingView()
+                ContentView()
             }
-            .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            .environmentObject(userManager)
         }
     }
 }
+
 

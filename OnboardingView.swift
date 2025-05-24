@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct OnboardingView: View {
+    @EnvironmentObject var userManager: UserManager
+
     @State private var step = 1
     @State private var milestone = ""
     @State private var deadline = ""
@@ -16,7 +18,7 @@ struct OnboardingView: View {
     @State private var shouldNavigate = false
 
     var body: some View {
-        if shouldNavigate {
+        if shouldNavigate || userManager.currentUser != nil {
             LunrDashboard()
         } else {
             ZStack {
@@ -50,6 +52,15 @@ struct OnboardingView: View {
 
                     Button(action: {
                         if step == 4 {
+                            let newUser = User(
+                                name: name,
+                                milestone: milestone,
+                                targetDeadline: deadline,
+                                realisticEstimate: estimation,
+                                createdAt: Date(),
+                                lastActive: Date()
+                            )
+                            userManager.saveUser(newUser)
                             shouldNavigate = true
                         } else {
                             step += 1
@@ -60,7 +71,7 @@ struct OnboardingView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.blue)
-//                            .foregroundColor(.white)
+                            .foregroundColor(.white)
                             .cornerRadius(12)
                     }
                     .padding(.horizontal)
@@ -93,3 +104,4 @@ struct OnboardingView: View {
         }
     }
 }
+
