@@ -13,6 +13,8 @@ struct LunrDashboard: View {
     @State private var usageData: [DailyAppSession] = []
     @State private var roadmap: [RoadmapStep] = []
     @State private var isMonitoring = MonitoringEngine.shared.isRunning
+    @State private var countdownText: String = ""
+    @State private var countdownTimer: Timer?
 
     var body: some View {
         NavigationStack {
@@ -31,12 +33,102 @@ struct LunrDashboard: View {
             .navigationTitle("Lunr OS")
             .onAppear {
                 loadData(for: selectedDate)
-                loadRoadmap()
+                loadAllGoalRoadmaps()
                 isMonitoring = MonitoringEngine.shared.isRunning
+                startCountdown()
+            }
+
+        }
+    }
+    
+    private func currentRoadmapStepIndex(for roadmap: Roadmap) -> Int? {
+        var accumulatedDays = 0
+        let now = Date()
+
+        for (index, step) in roadmap.steps.enumerated() {
+            let stepStart = Calendar.current.date(byAdding: .day, value: accumulatedDays, to: roadmap.createdAt) ?? roadmap.createdAt
+            accumulatedDays += step.durationDays
+            let stepEnd = Calendar.current.date(byAdding: .day, value: step.durationDays, to: stepStart) ?? stepStart
+
+            if now >= stepStart && now < stepEnd {
+                return index
+            }
+        }
+
+        return nil
+    }
+
+    
+    private func startCountdown() {
+        countdownTimer?.invalidate()
+
+        guard let user = userManager.currentUser,
+              let goal = loadGoal(for: user) else {
+            countdownText = "No deadline"
+            return
+        }
+
+        // Convert goal.createdAt from Double to Date
+        let startDate = Date(timeIntervalSince1970: goal.createdAt.timeIntervalSince1970)
+
+        guard let deadlineInterval = parseDuration(goal.targetDeadline) else {
+            countdownText = "⏳ Invalid deadline"
+            return
+        }
+
+        let targetDate = startDate.addingTimeInterval(deadlineInterval)
+
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            let now = Date()
+            let remaining = targetDate.timeIntervalSince(now)
+
+            if remaining <= 0 {
+                countdownText = "⏳ Deadline passed"
+                countdownTimer?.invalidate()
+            } else {
+                let days = Int(remaining) / 86400
+                let hours = (Int(remaining) % 86400) / 3600
+                let minutes = (Int(remaining) % 3600) / 60
+                let seconds = Int(remaining) % 60
+                countdownText = "⏳ Expires in: \(days)d \(hours)h \(minutes)m \(seconds)s"
             }
         }
     }
 
+
+    
+    private func countdownText(from deadlineString: String) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        // Try parsing string as exact date first (if you later use exact dates)
+        if let date = formatter.date(from: deadlineString) {
+            let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
+            return daysLeft > 0 ? "\(daysLeft) days left" : "⏳ Deadline passed"
+        }
+
+        // If using freeform like "3 months", show it as-is
+        return "⏱ \(deadlineString)"
+    }
+
+    private func parseDuration(_ input: String) -> TimeInterval? {
+        let lowercased = input.lowercased()
+        let components = lowercased.components(separatedBy: " ")
+        guard components.count >= 2,
+              let value = Int(components[0]) else { return nil }
+
+        if components[1].starts(with: "day") {
+            return TimeInterval(value * 86400)
+        } else if components[1].starts(with: "week") {
+            return TimeInterval(value * 7 * 86400)
+        } else if components[1].starts(with: "month") {
+            return TimeInterval(value * 30 * 86400)
+        }
+
+        return nil
+    }
+
+    
     // MARK: - Header
 
     private var headerSection: some View {
@@ -45,7 +137,12 @@ struct LunrDashboard: View {
                let goal = loadGoal(for: user) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("👋 Welcome, \(user.name)").font(.title2.bold())
-                    Text("🎯 Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
+
+                    HStack(spacing: 12) {
+                        Text("🎯 Current Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
+                        Text(countdownText).font(.subheadline).foregroundColor(.blue)
+                    }
+
                 }
             } else {
                 EmptyView()
@@ -54,26 +151,98 @@ struct LunrDashboard: View {
     }
 
 
+
     // MARK: - Roadmap
+
+    @State private var goalRoadmaps: [(Goal, Roadmap)] = []
+    @State private var expandedStepsByGoal: [UUID: Set<UUID>] = [:]
 
     private var roadmapSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("📅 Your Roadmap").font(.headline)
-            if roadmap.isEmpty {
-                Text("LLM is still generating your roadmap...").font(.caption).foregroundColor(.gray)
+            if goalRoadmaps.isEmpty {
+                Text("LLM is still generating your roadmap...")
+                    .font(.caption)
+                    .foregroundColor(.gray)
             } else {
-                ForEach(roadmap) { step in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("• \(step.title)").bold()
-                        Text("⏱ \(step.durationDays) days")
-                        Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
-                        Text(step.description).font(.caption2).foregroundColor(.gray)
+                ForEach(goalRoadmaps, id: \.0.id) { goal, roadmap in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Text("🎯 Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
+                            Text(countdownText).font(.subheadline).foregroundColor(.blue)
+                        }
+
+                        Text("📅 Roadmap").font(.headline)
+
+                        let stepDates: [(step: RoadmapStep, start: Date)] = {
+                            var dates: [(RoadmapStep, Date)] = []
+                            var current = roadmap.createdAt
+                            for step in roadmap.steps {
+                                dates.append((step, current))
+                                current = Calendar.current.date(byAdding: .day, value: step.durationDays, to: current) ?? current
+                            }
+                            return dates
+                        }()
+
+                        let currentIndex = currentRoadmapStepIndex(for: roadmap)
+
+                        ForEach(Array(stepDates.enumerated()), id: \.element.0.id) { index, pair in
+                            let step = pair.0
+                            let date = pair.1
+
+                            DisclosureGroup(
+                                isExpanded: Binding(
+                                    get: {
+                                        expandedStepsByGoal[goal.id, default: []].contains(step.id)
+                                    },
+                                    set: { newValue in
+                                        if newValue {
+                                            expandedStepsByGoal[goal.id, default: []].insert(step.id)
+                                        } else {
+                                            expandedStepsByGoal[goal.id, default: []].remove(step.id)
+                                        }
+                                    }
+                                ),
+                                content: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("⏱ \(step.durationDays) days").font(.caption)
+                                        Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
+                                        Text(step.description).font(.caption2).foregroundColor(.gray)
+                                    }
+                                    .padding(.top, 4)
+                                },
+                                label: {
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Text(formattedDisplayDate(date))
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .frame(width: 90, alignment: .leading)
+                                        Text("• \(step.title)").bold()
+
+                                        if index == currentIndex {
+                                            Text("📍 You are here")
+                                                .font(.caption2)
+                                                .foregroundColor(.blue)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.blue.opacity(0.1))
+                                                .cornerRadius(6)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        Divider().padding(.top, 8)
                     }
-                    .padding(.bottom, 8)
                 }
             }
         }
     }
+
+
+
+
+
     
     private var monitoringToggleSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -166,6 +335,67 @@ struct LunrDashboard: View {
 
 
     // MARK: - Helpers
+    
+    private func computeStepStartDates(for roadmap: Roadmap) -> [(RoadmapStep, Date)] {
+        var dates: [(RoadmapStep, Date)] = []
+        var currentDate = roadmap.createdAt
+        for step in roadmap.steps {
+            dates.append((step, currentDate))
+            currentDate = Calendar.current.date(byAdding: .day, value: step.durationDays, to: currentDate) ?? currentDate
+        }
+        return dates
+    }
+
+
+    private func formattedDisplayDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
+    }
+
+
+    private func buildStepViews(goal: Goal, roadmap: Roadmap) -> [some View] {
+        var accumulatedDays = 0
+
+        return roadmap.steps.map { step in
+            let stepStartDate = Calendar.current.date(byAdding: .day, value: accumulatedDays, to: roadmap.createdAt) ?? roadmap.createdAt
+            accumulatedDays += step.durationDays
+
+            return AnyView(
+                DisclosureGroup(
+                    isExpanded: Binding(
+                        get: {
+                            expandedStepsByGoal[goal.id, default: []].contains(step.id)
+                        },
+                        set: { newValue in
+                            if newValue {
+                                expandedStepsByGoal[goal.id, default: []].insert(step.id)
+                            } else {
+                                expandedStepsByGoal[goal.id, default: []].remove(step.id)
+                            }
+                        }
+                    ),
+                    content: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("⏱ \(step.durationDays) days").font(.caption)
+                            Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
+                            Text(step.description).font(.caption2).foregroundColor(.gray)
+                        }
+                        .padding(.top, 4)
+                    },
+                    label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(formattedDisplayDate(stepStartDate))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 90, alignment: .leading)
+                            Text("• \(step.title)").bold()
+                        }
+                    }
+                )
+            )
+        }
+    }
 
     private func toggleMonitoring() {
         if isMonitoring {
@@ -177,6 +407,13 @@ struct LunrDashboard: View {
         }
         isMonitoring = MonitoringEngine.shared.isRunning
     }
+    
+    private func parseDeadline(_ string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: string)
+    }
+
 
     private func loadData(for date: Date) {
         let filename = formattedDate(date) + ".json"
@@ -212,35 +449,37 @@ struct LunrDashboard: View {
     }
 
 
-    private func loadRoadmap() {
-        guard let user = userManager.currentUser,
-              let goal = loadGoal(for: user) else {
-            print("❌ No user or goal found for roadmap loading.")
+    private func loadAllGoalRoadmaps() {
+        goalRoadmaps = []  // Clear previous
+        expandedStepsByGoal = [:]
+
+        let fileManager = FileManager.default
+        let supportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let goalsDir = supportDir.appendingPathComponent("Lunr/Goals")
+        let roadmapsDir = supportDir.appendingPathComponent("Lunr/Roadmaps")
+
+        guard let goalFiles = try? fileManager.contentsOfDirectory(at: goalsDir, includingPropertiesForKeys: nil) else {
+            print("❌ No goals found.")
             return
         }
 
-        let roadmapPath = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Lunr/Roadmaps/\(goal.id.uuidString).json")
+        for goalFile in goalFiles {
+            guard let goalData = try? Data(contentsOf: goalFile),
+                  let goal = try? JSONDecoder().decode(Goal.self, from: goalData) else {
+                continue
+            }
 
-        print("📁 Trying to load roadmap from: \(roadmapPath.path)")
+            let roadmapPath = roadmapsDir.appendingPathComponent("\(goal.id.uuidString).json")
+            guard let roadmapData = try? Data(contentsOf: roadmapPath),
+                  let roadmap = try? JSONDecoder().decode(Roadmap.self, from: roadmapData) else {
+                continue
+            }
 
-        guard let data = try? Data(contentsOf: roadmapPath) else {
-            print("❌ Failed to load roadmap data from file.")
-            return
+            goalRoadmaps.append((goal, roadmap))
         }
 
-        guard let roadmapObj = try? JSONDecoder().decode(Roadmap.self, from: data) else {
-            print("❌ Failed to decode roadmap from JSON.")
-            return
-        }
-
-        DispatchQueue.main.async {
-            print("✅ Successfully loaded roadmap with \(roadmapObj.steps.count) steps.")
-            self.roadmap = roadmapObj.steps
-        }
+        print("✅ Loaded \(goalRoadmaps.count) roadmap-goal pairs.")
     }
-
 
 
     private func openLogInFinder() {
