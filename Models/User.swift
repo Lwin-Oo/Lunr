@@ -9,11 +9,10 @@ import Foundation
 
 struct User: Codable {
     var name: String
-    var milestone: String
-    var targetDeadline: String
-    var realisticEstimate: String
+    var career: String
     var createdAt: Date
     var lastActive: Date
 }
+
 
 

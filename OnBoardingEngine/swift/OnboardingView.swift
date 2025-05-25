@@ -14,6 +14,8 @@ struct OnboardingView: View {
     @State private var milestone = ""
     @State private var deadline = ""
     @State private var estimation = ""
+    @State private var dailyTime = ""
+    @State private var career = ""
     @State private var name = ""
     @State private var shouldNavigate = false
 
@@ -30,7 +32,7 @@ struct OnboardingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
 
-                    ProgressView(value: Double(step), total: 4)
+                    ProgressView(value: Double(step), total: 6)
                         .accentColor(.blue)
                         .padding(.horizontal)
 
@@ -45,28 +47,10 @@ struct OnboardingView: View {
                             .background(Color(NSColor.controlBackgroundColor))
                             .cornerRadius(10)
                     }
-                    .padding()
-                    .cornerRadius(16)
-                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
                     .padding(.horizontal)
 
-                    Button(action: {
-                        if step == 4 {
-                            let newUser = User(
-                                name: name,
-                                milestone: milestone,
-                                targetDeadline: deadline,
-                                realisticEstimate: estimation,
-                                createdAt: Date(),
-                                lastActive: Date()
-                            )
-                            userManager.saveUser(newUser)
-                            shouldNavigate = true
-                        } else {
-                            step += 1
-                        }
-                    }) {
-                        Text(step == 4 ? "Finish" : "Next")
+                    Button(action: handleStep) {
+                        Text(step == 6 ? "Finish" : "Next")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -87,9 +71,11 @@ struct OnboardingView: View {
     private var questionTitle: String {
         switch step {
         case 1: return "1. What milestone do you want to achieve?"
-        case 2: return "2. When do you want to get it done?\n(e.g., a week, a month, 10 years)"
-        case 3: return "3. When do you think you can actually finish it?"
-        case 4: return "4. Finally, what's your name?"
+        case 2: return "2. When do you want to get it done?"
+        case 3: return "3. When do you think you can realistically finish it?"
+        case 4: return "4. How much time can you commit daily?"
+        case 5: return "5. What do you currently do?"
+        case 6: return "6. Finally, what's your name?"
         default: return ""
         }
     }
@@ -99,9 +85,52 @@ struct OnboardingView: View {
         case 1: return $milestone
         case 2: return $deadline
         case 3: return $estimation
-        case 4: return $name
+        case 4: return $dailyTime
+        case 5: return $career
+        case 6: return $name
         default: return .constant("")
         }
     }
-}
 
+    private func handleStep() {
+        if step == 6 {
+            let now = Date()
+
+            let user = User(
+                name: name,
+                career: career,
+                createdAt: now,
+                lastActive: now
+            )
+            userManager.saveUser(user)
+
+            let goal = Goal(
+                id: UUID(),
+                title: milestone,
+                targetDeadline: deadline,
+                realisticEstimate: estimation,
+                dailyTime: dailyTime,
+                createdAt: now
+            )
+            
+            UserManager.shared.saveUser(user)
+            GoalManager.saveGoal(goal)
+
+            RoadmapBuilder.buildRoadmap(for: user, goal: goal) { steps in
+                let roadmap = Roadmap(
+                    id: UUID(),
+                    goalId: goal.id,
+                    createdAt: Date(),
+                    steps: steps
+                )
+                RoadmapManager.saveRoadmap(roadmap)
+                DispatchQueue.main.async {
+                    shouldNavigate = true
+                }
+            }
+
+        } else {
+            step += 1
+        }
+    }
+}

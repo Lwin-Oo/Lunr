@@ -36,3 +36,4 @@ void stopSystemObserver(void) {
 bool isSystemObserverRunning(void) {
     return observerRunning;
 }
+

@@ -18,7 +18,7 @@ class UserManager: ObservableObject {
     }
 
     func saveUser(_ user: User) {
-        let url = fileURL(for: user.name)
+        let url = userDirectory(for: user.name).appendingPathComponent("profile.json")
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(user) {
             try? data.write(to: url)
@@ -29,7 +29,7 @@ class UserManager: ObservableObject {
 
     func loadUser() {
         DispatchQueue.global().async {
-            let usersFolder = self.userBaseDirectory().appendingPathComponent("users")
+            let usersFolder = self.userBaseDirectory().appendingPathComponent("Users")
             guard let folders = try? FileManager.default.contentsOfDirectory(at: usersFolder, includingPropertiesForKeys: nil),
                   let first = folders.first else {
                 DispatchQueue.main.async { self.isUserLoaded = true }
@@ -50,14 +50,17 @@ class UserManager: ObservableObject {
         }
     }
 
+    // MARK: - Path Helpers
+
     private func userBaseDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("Lunr")
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Lunr", isDirectory: true)
     }
 
-    private func fileURL(for username: String) -> URL {
+    private func userDirectory(for username: String) -> URL {
         userBaseDirectory()
-            .appendingPathComponent("users")
+            .appendingPathComponent("Users")
             .appendingPathComponent(username)
-            .appendingPathComponent("profile.json")
     }
 }
