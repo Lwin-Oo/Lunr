@@ -15,6 +15,7 @@ struct LunrDashboard: View {
     @State private var isMonitoring = MonitoringEngine.shared.isRunning
     @State private var countdownText: String = ""
     @State private var countdownTimer: Timer?
+    @State private var stepRequirements: [UUID: [ToolUsageRequirement]] = [:]
 
     var body: some View {
         NavigationStack {
@@ -60,6 +61,7 @@ struct LunrDashboard: View {
 
     
     private func startCountdown() {
+        
         countdownTimer?.invalidate()
 
         guard let user = userManager.currentUser,
@@ -67,7 +69,9 @@ struct LunrDashboard: View {
             countdownText = "No deadline"
             return
         }
-
+        
+        print("📅 Parsing deadline: \(goal.targetDeadline)")
+        
         // Convert goal.createdAt from Double to Date
         let startDate = Date(timeIntervalSince1970: goal.createdAt.timeIntervalSince1970)
 
@@ -112,19 +116,34 @@ struct LunrDashboard: View {
     }
 
     private func parseDuration(_ input: String) -> TimeInterval? {
-        let lowercased = input.lowercased()
-        let components = lowercased.components(separatedBy: " ")
-        guard components.count >= 2,
-              let value = Int(components[0]) else { return nil }
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        print("🔍 Cleaned input: '\(trimmed)'")
 
-        if components[1].starts(with: "day") {
-            return TimeInterval(value * 86400)
-        } else if components[1].starts(with: "week") {
-            return TimeInterval(value * 7 * 86400)
-        } else if components[1].starts(with: "month") {
-            return TimeInterval(value * 30 * 86400)
+        // Replace "a" or "an" with 1
+        let normalized = trimmed
+            .replacingOccurrences(of: #"(^|\s)(a|an)(?=\s)"#, with: "$11", options: .regularExpression)
+
+        let regex = try! NSRegularExpression(pattern: #"(\d+)\s*(day|week|month)s?"#, options: [])
+
+        if let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)) {
+            let valueRange = Range(match.range(at: 1), in: normalized)
+            let unitRange = Range(match.range(at: 2), in: normalized)
+
+            if let valueStr = valueRange.map({ String(normalized[$0]) }),
+               let unit = unitRange.map({ String(normalized[$0]) }),
+               let value = Int(valueStr) {
+                switch unit {
+                case "day": return TimeInterval(value * 86400)
+                case "week": return TimeInterval(value * 7 * 86400)
+                case "month": return TimeInterval(value * 30 * 86400)
+                default:
+                    print("❌ Unknown unit: \(unit)")
+                    return nil
+                }
+            }
         }
 
+        print("❌ Could not parse duration from '\(normalized)'")
         return nil
     }
 
@@ -132,23 +151,26 @@ struct LunrDashboard: View {
     // MARK: - Header
 
     private var headerSection: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 4) {
             if let user = userManager.currentUser,
                let goal = loadGoal(for: user) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("👋 Welcome, \(user.name)").font(.title2.bold())
+                Text("👋 Welcome, \(user.name)").font(.title2.bold())
 
-                    HStack(spacing: 12) {
-                        Text("🎯 Current Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
-                        Text(countdownText).font(.subheadline).foregroundColor(.blue)
-                    }
+                HStack(spacing: 12) {
+                    Text("🎯 Current Goal: \(goal.title)")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
 
+                    Text(countdownText)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
                 }
             } else {
-                EmptyView()
+                Text("🔒 No user loaded").font(.subheadline)
             }
         }
     }
+
 
 
 
@@ -168,7 +190,7 @@ struct LunrDashboard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 12) {
                             Text("🎯 Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
-                            Text(countdownText).font(.subheadline).foregroundColor(.blue)
+//                            Text(countdownText).font(.subheadline).foregroundColor(.blue)
                         }
 
                         Text("📅 Roadmap").font(.headline)
@@ -189,6 +211,17 @@ struct LunrDashboard: View {
                             let step = pair.0
                             let date = pair.1
 
+                            let commitment = Int(goal.dailyTime) ?? 1
+                            let requirements: [ToolUsageRequirement] = {
+                                if let existing = stepRequirements[step.id] {
+                                    return existing
+                                } else {
+                                    let generated = ProgressionEngine.generateRequirements(for: step, dailyCommitmentHours: commitment)
+                                    stepRequirements[step.id] = generated
+                                    return generated
+                                }
+                            }()
+
                             DisclosureGroup(
                                 isExpanded: Binding(
                                     get: {
@@ -203,10 +236,21 @@ struct LunrDashboard: View {
                                     }
                                 ),
                                 content: {
-                                    VStack(alignment: .leading, spacing: 4) {
+                                    VStack(alignment: .leading, spacing: 6) {
                                         Text("⏱ \(step.durationDays) days").font(.caption)
                                         Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
                                         Text(step.description).font(.caption2).foregroundColor(.gray)
+
+                                        Divider().padding(.vertical, 4)
+                                        Text("📈 Required Tool Usage").font(.caption).bold()
+
+                                        ForEach(requirements, id: \.id) { req in
+                                            HStack {
+                                                Text("• \(req.toolName)").font(.caption2)
+                                                Spacer()
+                                                Text("🎯 \(req.requiredHours) hrs").font(.caption2).foregroundColor(.gray)
+                                            }
+                                        }
                                     }
                                     .padding(.top, 4)
                                 },
@@ -240,10 +284,6 @@ struct LunrDashboard: View {
     }
 
 
-
-
-
-    
     private var monitoringToggleSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("🖥 Screen Monitoring").font(.headline)
@@ -293,24 +333,34 @@ struct LunrDashboard: View {
     // MARK: - Usage Logs
 
     private var categorizedUsageSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("📊 Usage by Category").font(.headline)
-            ForEach(["Productive", "Entertainment", "Code", "Educational", "Social", "Utility", "Communication", "Design", "Gaming", "Uncategorized"], id: \.self) { category in
-                let items = usageData.filter { $0.classification == category }
-                if !items.isEmpty {
-                    DisclosureGroup("\(category) (\(items.count))") {
-                        ForEach(items) { session in
-                            VStack(alignment: .leading) {
-                                Text("• \(session.app)").bold()
-                                Text(session.windowTitle).font(.caption).foregroundColor(.gray)
-                                Text("⏱ \(formattedTime(session.durationSeconds))").font(.caption2)
-                            }
-                        }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("📊 Usage Portfolio").font(.headline)
+
+            let grouped = Dictionary(grouping: usageData, by: { $0.classification })
+            let formatted = grouped.map { (category, sessions) in
+                let total = sessions.map { Double($0.durationSeconds) / 60 }.reduce(0, +)
+                let apps = Dictionary(grouping: sessions, by: { $0.app })
+                    .map { (name, items) -> (String, String, Double) in
+                        let title = items.last?.windowTitle ?? "Unknown"
+                        let totalTime = items.map { Double($0.durationSeconds) / 60 }.reduce(0, +)
+                        return (name, title, totalTime)
                     }
-                }
+                    .sorted { $0.2 > $1.2 }
+                return (category: category, total: total, apps: apps)
             }
+            .sorted { $0.total > $1.total }
+
+            let total = formatted.map(\.total).reduce(0, +)
+
+            HoverPieChart(
+                data: formatted,
+                total: total,
+                size: CGSize(width: 180, height: 180)
+            )
         }
     }
+
+
 
     private var rawLogSection: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -376,13 +426,29 @@ struct LunrDashboard: View {
                         }
                     ),
                     content: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 6) {
                             Text("⏱ \(step.durationDays) days").font(.caption)
                             Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
                             Text(step.description).font(.caption2).foregroundColor(.gray)
+                            
+                            let commitmentHours = Int(goal.dailyTime) ?? 1  // fallback to 1 hour if invalid
+                            let requirements = ProgressionEngine.generateRequirements(for: step, dailyCommitmentHours: commitmentHours)
+
+
+                            Divider().padding(.vertical, 4)
+                            Text("📈 Required Tool Usage").font(.caption).bold()
+
+                            ForEach(requirements, id: \.id) { req in
+                                HStack {
+                                    Text("• \(req.toolName)").font(.caption2)
+                                    Spacer()
+                                    Text("🎯 \(req.requiredHours) hrs").font(.caption2).foregroundColor(.gray)
+                                }
+                            }
                         }
                         .padding(.top, 4)
                     },
+
                     label: {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(formattedDisplayDate(stepStartDate))
@@ -539,3 +605,127 @@ struct SummaryCard: View {
         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 }
+
+// MARK: - PieChart
+struct HoverPieChart: View {
+    let data: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])]
+    let total: Double
+    let size: CGSize
+
+    @State private var selectedCategory: String?
+
+    var body: some View {
+        HStack(spacing: 20) {
+            // Left Label Panel
+            VStack(alignment: .leading, spacing: 6) {
+                if let selected = selectedCategory,
+                   let slice = data.first(where: { $0.category == selected }) {
+                    Text("📂 Category: \(slice.category)").font(.caption.bold())
+                    ForEach(slice.apps.prefix(5), id: \.name) { app in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("• \(app.name)").font(.caption2.bold())
+                            Text("🪟 \(app.windowTitle)").font(.caption2).foregroundColor(.gray)
+                            Text("⏱ \(Int(app.duration)) mins").font(.caption2)
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    if slice.apps.count > 5 {
+                        Text("...").font(.caption2)
+                    }
+                } else {
+                    Text("Tap a slice").font(.caption).foregroundColor(.gray)
+                }
+            }
+            .frame(width: 160)
+
+            // Pie Chart
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2
+                var startAngle = -90.0
+
+                for (index, item) in data.enumerated() {
+                    let angleSpan = (item.total / max(total, 1)) * 360
+                    let endAngle = startAngle + angleSpan
+
+                    let path = Path { path in
+                        path.move(to: center)
+                        path.addArc(center: center,
+                                    radius: radius,
+                                    startAngle: .degrees(startAngle),
+                                    endAngle: .degrees(endAngle),
+                                    clockwise: false)
+                        path.closeSubpath()
+                    }
+
+                    let isSelected = selectedCategory == item.category
+                    let shade = 0.15 + (Double(index) / Double(data.count)) * 0.6
+                    let fill = Color(white: isSelected ? 0.2 : shade)
+
+                    context.fill(path, with: .color(fill))
+                    context.stroke(path, with: .color(.black), lineWidth: 1)
+
+                    startAngle = endAngle
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        let local = value.location
+                        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                        let dx = local.x - center.x
+                        let dy = local.y - center.y
+                        let angle = atan2(dy, dx) * 180 / .pi + 90
+                        let normalized = angle < 0 ? angle + 360 : angle
+
+                        var runningTotal = 0.0
+                        for item in data {
+                            let percent = item.total / max(total, 1)
+                            let span = percent * 360
+                            if normalized >= runningTotal && normalized < runningTotal + span {
+                                selectedCategory = item.category
+                                return
+                            }
+                            runningTotal += span
+                        }
+                    }
+            )
+        }
+    }
+}
+
+
+// MARK: - PieSlice
+struct PieSlice: View {
+    let center: CGPoint
+    let radius: CGFloat
+    let startAngle: Double
+    let endAngle: Double
+    let isHighlighted: Bool
+
+    var body: some View {
+        Path { path in
+            path.move(to: center)
+            path.addArc(center: center,
+                        radius: radius,
+                        startAngle: .degrees(startAngle),
+                        endAngle: .degrees(endAngle),
+                        clockwise: false)
+        }
+        .fill(isHighlighted ? Color.gray.opacity(0.25) : Color.gray.opacity(0.08))
+        .overlay(
+            Path { path in
+                path.move(to: center)
+                path.addArc(center: center,
+                            radius: radius,
+                            startAngle: .degrees(startAngle),
+                            endAngle: .degrees(endAngle),
+                            clockwise: false)
+            }
+            .stroke(Color.black, lineWidth: 1)
+        )
+    }
+}
+

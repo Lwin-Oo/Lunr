@@ -2,32 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- App Sandbox -->
-    <key>com.apple.security.app-sandbox</key>
-    <true/>
-
-    <!-- Network access to localhost (Ollama) -->
-    <key>com.apple.security.network.client</key>
-    <true/>
-
-    <!-- Screen/audio/system access -->
-    <key>NSCameraUsageDescription</key>
-    <string>Used to analyze productivity by monitoring screen</string>
-
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Not used, but required by AVFoundation screen capture</string>
-
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Needed to access window titles</string>
-
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>Required to store frame logs for behavior</string>
-
-    <!-- Background support for audio (needed for AV capture sometimes) -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>audio</string>
-    </array>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>Intent</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>
-
