@@ -16,6 +16,8 @@ struct LunrDashboard: View {
     @State private var countdownText: String = ""
     @State private var countdownTimer: Timer?
     @State private var stepRequirements: [UUID: [ToolUsageRequirement]] = [:]
+    @State private var todayReflection: DailyReflection?
+    @State private var encouragementText: String = ""
 
     var body: some View {
         NavigationStack {
@@ -37,6 +39,26 @@ struct LunrDashboard: View {
                 loadAllGoalRoadmaps()
                 isMonitoring = MonitoringEngine.shared.isRunning
                 startCountdown()
+
+                WeatherManager.shared.fetchWeather { weatherData in
+                    guard let weather = weatherData else {
+                        DispatchQueue.main.async {
+                            encouragementText = "🌤️ Unable to fetch weather."
+                        }
+                        return
+                    }
+
+                    let reflection = MomentumManager.shared.loadReflection(for: Date()) ??
+                        DailyReflection(date: Date(), mood: "neutral", topFocus: "Stay focused", smallWin: "")
+
+                    todayReflection = reflection
+
+                    MomentumAI.generateEncouragement(from: reflection, weather: weather) { message in
+                        DispatchQueue.main.async {
+                            encouragementText = message
+                        }
+                    }
+                }
             }
 
         }
@@ -180,108 +202,117 @@ struct LunrDashboard: View {
     @State private var expandedStepsByGoal: [UUID: Set<UUID>] = [:]
 
     private var roadmapSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if goalRoadmaps.isEmpty {
-                Text("LLM is still generating your roadmap...")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-            } else {
-                ForEach(goalRoadmaps, id: \.0.id) { goal, roadmap in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 24) {
+            // Roadmap list (Left Side)
+            VStack(alignment: .leading, spacing: 12) {
+                if goalRoadmaps.isEmpty {
+                    Text("LLM is still generating your roadmap...")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                } else {
+                    ForEach(goalRoadmaps, id: \.0.id) { goal, roadmap in
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("🎯 Goal: \(goal.title)").font(.subheadline).foregroundColor(.gray)
-//                            Text(countdownText).font(.subheadline).foregroundColor(.blue)
-                        }
+                            Text("📅 Roadmap").font(.headline)
 
-                        Text("📅 Roadmap").font(.headline)
+                            let stepDates: [(step: RoadmapStep, start: Date)] = {
+                                var dates: [(RoadmapStep, Date)] = []
+                                var current = roadmap.createdAt
+                                for step in roadmap.steps {
+                                    dates.append((step, current))
+                                    current = Calendar.current.date(byAdding: .day, value: step.durationDays, to: current) ?? current
+                                }
+                                return dates
+                            }()
 
-                        let stepDates: [(step: RoadmapStep, start: Date)] = {
-                            var dates: [(RoadmapStep, Date)] = []
-                            var current = roadmap.createdAt
-                            for step in roadmap.steps {
-                                dates.append((step, current))
-                                current = Calendar.current.date(byAdding: .day, value: step.durationDays, to: current) ?? current
-                            }
-                            return dates
-                        }()
+                            let currentIndex = currentRoadmapStepIndex(for: roadmap)
 
-                        let currentIndex = currentRoadmapStepIndex(for: roadmap)
+                            ForEach(Array(stepDates.enumerated()), id: \.element.0.id) { index, pair in
+                                let step = pair.0
+                                let date = pair.1
 
-                        ForEach(Array(stepDates.enumerated()), id: \.element.0.id) { index, pair in
-                            let step = pair.0
-                            let date = pair.1
-
-                            let commitment = Int(goal.dailyTime) ?? 1
-                            let requirements: [ToolUsageRequirement] = {
-                                if let existing = stepRequirements[step.id] {
-                                    return existing
-                                } else {
+                                let commitment = Int(goal.dailyTime) ?? 1
+                                let requirements = stepRequirements[step.id] ?? {
                                     let generated = ProgressionEngine.generateRequirements(for: step, dailyCommitmentHours: commitment)
                                     stepRequirements[step.id] = generated
                                     return generated
-                                }
-                            }()
+                                }()
 
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: {
-                                        expandedStepsByGoal[goal.id, default: []].contains(step.id)
-                                    },
-                                    set: { newValue in
-                                        if newValue {
-                                            expandedStepsByGoal[goal.id, default: []].insert(step.id)
-                                        } else {
-                                            expandedStepsByGoal[goal.id, default: []].remove(step.id)
+                                DisclosureGroup(
+                                    isExpanded: Binding(
+                                        get: {
+                                            expandedStepsByGoal[goal.id, default: []].contains(step.id)
+                                        },
+                                        set: { newValue in
+                                            if newValue {
+                                                expandedStepsByGoal[goal.id, default: []].insert(step.id)
+                                            } else {
+                                                expandedStepsByGoal[goal.id, default: []].remove(step.id)
+                                            }
                                         }
-                                    }
-                                ),
-                                content: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("⏱ \(step.durationDays) days").font(.caption)
-                                        Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
-                                        Text(step.description).font(.caption2).foregroundColor(.gray)
+                                    ),
+                                    content: {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text("⏱ \(step.durationDays) days").font(.caption)
+                                            Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
+                                            Text(step.description).font(.caption2).foregroundColor(.gray)
 
-                                        Divider().padding(.vertical, 4)
-                                        Text("📈 Required Tool Usage").font(.caption).bold()
+                                            Divider().padding(.vertical, 4)
+                                            Text("📈 Required Tool Usage").font(.caption).bold()
 
-                                        ForEach(requirements, id: \.id) { req in
-                                            HStack {
-                                                Text("• \(req.toolName)").font(.caption2)
-                                                Spacer()
-                                                Text("🎯 \(req.requiredHours) hrs").font(.caption2).foregroundColor(.gray)
+                                            ForEach(requirements, id: \.id) { req in
+                                                HStack {
+                                                    Text("• \(req.toolName)").font(.caption2)
+                                                    Spacer()
+                                                    Text("🎯 \(req.requiredHours) hrs").font(.caption2).foregroundColor(.gray)
+                                                }
+                                            }
+                                        }
+                                        .padding(.top, 4)
+                                    },
+                                    label: {
+                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                            Text(formattedDisplayDate(date))
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .frame(width: 90, alignment: .leading)
+                                            Text("• \(step.title)").bold()
+
+                                            if index == currentIndex {
+                                                Text("📍 You are here")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.blue)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(Color.blue.opacity(0.1))
+                                                    .cornerRadius(6)
                                             }
                                         }
                                     }
-                                    .padding(.top, 4)
-                                },
-                                label: {
-                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                        Text(formattedDisplayDate(date))
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                            .frame(width: 90, alignment: .leading)
-                                        Text("• \(step.title)").bold()
-
-                                        if index == currentIndex {
-                                            Text("📍 You are here")
-                                                .font(.caption2)
-                                                .foregroundColor(.blue)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color.blue.opacity(0.1))
-                                                .cornerRadius(6)
-                                        }
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
-
-                        Divider().padding(.top, 8)
                     }
                 }
             }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
+
+            // Encouragement Card (Right Side)
+            if let reflection = todayReflection {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("💬 Daily Encouragement").font(.headline)
+                    Text(encouragementText)
+                        .font(.caption)
+                        .padding(10)
+                        .background(Color(.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .shadow(radius: 1)
+                }
+                .frame(width: 240)
+            }
         }
     }
+
 
 
     private var monitoringToggleSection: some View {
@@ -329,7 +360,7 @@ struct LunrDashboard: View {
             SummaryCard(title: "Total Time", value: formattedTotalTime())
         }
     }
-
+    
     // MARK: - Usage Logs
 
     private var categorizedUsageSection: some View {
