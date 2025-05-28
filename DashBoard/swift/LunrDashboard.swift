@@ -512,21 +512,45 @@ struct LunrDashboard: View {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Lunr/Screentime")
 
-        let filename = formattedDate(date) + ".json"
-
-
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M-d-yy"
+        let filename = formatter.string(from: date) + ".json"
         let path = dir.appendingPathComponent(filename)
 
+        print("📂 Looking for file:", path.path)
 
-        guard let data = try? Data(contentsOf: path),
-              let decoded = try? JSONDecoder().decode(DailyLog.self, from: data),
-              let periodGroups = decoded.periods else {
+        guard fileManager.fileExists(atPath: path.path) else {
+            print("❌ File not found: \(path.lastPathComponent)")
             usageData = []
             return
         }
 
-        // Flatten all sessions from all periods
+        print("✅ File exists: \(path.lastPathComponent)")
+
+        guard let data = try? Data(contentsOf: path) else {
+            print("❌ Could not read data from file")
+            usageData = []
+            return
+        }
+
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("🧾 Raw JSON Content:\n\(jsonString)")
+        }
+
+        guard let decoded = try? JSONDecoder().decode(DailyLog.self, from: data) else {
+            print("❌ Could not decode JSON into DailyLog")
+            usageData = []
+            return
+        }
+
+        guard let periodGroups = decoded.periods else {
+            print("❌ 'periods' field is nil in JSON")
+            usageData = []
+            return
+        }
+
         usageData = periodGroups.flatMap { $0.sessions }
+        print("✅ Loaded \(usageData.count) sessions from \(filename)")
     }
 
 
@@ -593,15 +617,11 @@ struct LunrDashboard: View {
     }
 
     private func formattedDate(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.month, .day, .year], from: date)
-
-        let month = components.month ?? 1
-        let day = components.day ?? 1
-        let year = components.year ?? 2025 % 100 // Get last two digits
-
-        return "\(month)-\(day)-\(year)"
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M-d-yy"
+        return formatter.string(from: date)
     }
+
 
 
     private func formattedTotalTime() -> String {
