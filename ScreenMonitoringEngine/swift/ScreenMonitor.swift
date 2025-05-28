@@ -33,11 +33,17 @@ final class MonitoringEngine {
 
     private var timer: Timer?
     private var currentApp: String = ""
+    private var sessions: [DailyAppSession] = []
     private var currentTitle: String = ""
     private var sessionStart: Date?
-    private var sessions: [DailyAppSession] = []
-
     private(set) var isRunning = false
+
+    private var baseDirectory: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Lunr/Screentime", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
 
     private init() {}
 
@@ -67,31 +73,47 @@ final class MonitoringEngine {
             print("🧾 App title: \(s.app), Tab: \(s.windowTitle), Category: \(s.classification)")
         }
 
-        let log = DailyLog(date: formattedToday(), sessions: sessions)
-
-        if let encoded = try? JSONEncoder().encode(log),
-           let jsonStr = String(data: encoded, encoding: .utf8) {
-            print("📝 Full JSON Dump:\n\(jsonStr)")
-        }
+        let today = formattedToday()
+        let fileDate = formattedFilenameDate()
 
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Lunr/logs", isDirectory: true)
+            .appendingPathComponent("Lunr/Screentime", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let savedPath = dir.appendingPathComponent("\(log.date).json")
-        try? JSONEncoder().encode(log).write(to: savedPath)
 
-        print("✅ Saved to: \(savedPath.path)")
+        let fileURL = dir.appendingPathComponent("\(fileDate).json")
+
+        var groupedByPeriod: [String: [DailyAppSession]] = [:]
+
+        for session in sessions {
+            let period = currentHourPeriod()
+            groupedByPeriod[period, default: []].append(session)
+        }
+
+        var periodGroups: [PeriodSessionGroup] = groupedByPeriod.map {
+            PeriodSessionGroup(period: $0.key, sessions: $0.value)
+        }
+
+        // Sort periods by hour
+        periodGroups.sort { $0.period < $1.period }
+
+        let log = DailyLog(date: today, periods: periodGroups)
+
+        if let data = try? JSONEncoder().encode(log) {
+            try? data.write(to: fileURL)
+            print("✅ Saved to: \(fileURL.path)")
+        }
+
         sessions.removeAll()
         print("🔴 Monitoring stopped.")
     }
+
 
     private func monitorTick() {
         let newApp = getFrontmostApp()
         let newTitle = getSmartWindowTitle(for: newApp)
 
         if newApp != currentApp || newTitle != currentTitle {
-            endCurrentSession() // stores previous one
-
+            endCurrentSession()
             currentApp = newApp
             currentTitle = newTitle
             sessionStart = Date()
@@ -110,19 +132,7 @@ final class MonitoringEngine {
 
             queryLLM(prompt: fullPrompt) { category in
                 DispatchQueue.main.async {
-                    print("🧠 App title: \(newApp), Tab: \(newTitle), Category: \(category)")
-
-                    // Add new LLM-classified session
-                    let session = DailyAppSession(
-                        app: newApp,
-                        windowTitle: newTitle,
-                        startTime: self.iso8601(self.sessionStart ?? Date()),
-                        endTime: self.iso8601(Date()),
-                        durationSeconds: Int(Date().timeIntervalSince(self.sessionStart ?? Date())),
-                        classification: category
-                    )
-
-                    self.sessions.append(session)
+                    self.saveSession(app: newApp, title: newTitle, start: self.sessionStart ?? Date(), end: Date(), category: category)
                     self.sessionStart = Date()
                 }
             }
@@ -130,7 +140,6 @@ final class MonitoringEngine {
 
         print("🟢 Logger tick - recording app usage...")
     }
-
 
     private func endCurrentSession() {
         guard let start = sessionStart else { return }
@@ -148,26 +157,51 @@ final class MonitoringEngine {
 
         queryLLM(prompt: prompt) { category in
             DispatchQueue.main.async {
-                let session = DailyAppSession(
-                    app: self.currentApp,
-                    windowTitle: self.currentTitle,
-                    startTime: self.iso8601(start),
-                    endTime: self.iso8601(Date()),
-                    durationSeconds: duration,
-                    classification: category
-                )
-                self.sessions.append(session)
+                self.saveSession(app: self.currentApp, title: self.currentTitle, start: start, end: Date(), category: category)
             }
         }
     }
 
+    private func saveSession(app: String, title: String, start: Date, end: Date, category: String) {
+        let calendar = Calendar.current
+        let fileName = DateFormatter.localizedString(from: start, dateStyle: .short, timeStyle: .none)
+            .replacingOccurrences(of: "/", with: "-")
+        let jsonFile = baseDirectory.appendingPathComponent("\(fileName).json")
+        let startHour = calendar.component(.hour, from: start)
+        let periodLabel = String(format: "%02d:00 - %02d:00", startHour, (startHour + 1) % 24)
 
+        var json: [String: Any] = ["date": formattedToday(), "periods": [:]]
 
-//    private func classify(title: String) -> String {
-//        guard let cstr = title.cString(using: .utf8) else { return "Uncategorized" }
-//        guard let result = classifyContentText(cstr) else { return "Uncategorized" }
-//        return String(cString: result)
-//    }
+        // ⬇️ Try to load existing JSON and merge it
+        if let data = try? Data(contentsOf: jsonFile),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let existingPeriods = existing["periods"] as? [String: [[String: Any]]] {
+            json["periods"] = existingPeriods
+        }
+
+        var periods = json["periods"] as? [String: [[String: Any]]] ?? [:]
+        var periodSessions = periods[periodLabel] ?? []
+
+        let session: [String: Any] = [
+            "id": UUID().uuidString,
+            "classification": category,
+            "app": app,
+            "windowTitle": title,
+            "startTime": iso8601(start),
+            "endTime": iso8601(end),
+            "durationSeconds": Int(end.timeIntervalSince(start))
+        ]
+
+        periodSessions.append(session)
+        periods[periodLabel] = periodSessions
+        json["periods"] = periods
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+            try? jsonData.write(to: jsonFile)
+            print("✅ Appended to: \(jsonFile.path)")
+        }
+    }
+
 
     private func getFrontmostApp() -> String {
         NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
@@ -175,17 +209,12 @@ final class MonitoringEngine {
 
     private func getSmartWindowTitle(for appName: String) -> String {
         guard let app = NSWorkspace.shared.frontmostApplication,
-              let pid = app.processIdentifier as pid_t?
-        else {
-            return "Unknown"
-        }
+              let pid = app.processIdentifier as pid_t? else { return "Unknown" }
 
         let trusted = AXIsProcessTrustedWithOptions([
             kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
         ] as CFDictionary)
-        guard trusted else {
-            return "🔒 Permission Needed"
-        }
+        guard trusted else { return "🔒 Permission Needed" }
 
         let appRef = AXUIElementCreateApplication(pid)
         var window: CFTypeRef?
@@ -218,13 +247,12 @@ final class MonitoringEngine {
                 return title
             }
         }
-
         return nil
     }
 
     private func simplifyTitle(appName: String, rawTitle: String) -> String {
         if ["Google Chrome", "Safari"].contains(appName) {
-            if let match = rawTitle.range(of: #"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}"#, options: .regularExpression) {
+            if let match = rawTitle.range(of: #"[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}"#, options: .regularExpression) {
                 return String(rawTitle[match])
             }
         }
@@ -241,6 +269,13 @@ final class MonitoringEngine {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: Date())
     }
+    
+    private func formattedFilenameDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd-yyyy"
+        return formatter.string(from: Date())
+    }
+
 
     private func queryLLM(prompt: String, completion: @escaping (String) -> Void) {
         let url = URL(string: "http://localhost:11434/api/generate")!
@@ -256,12 +291,20 @@ final class MonitoringEngine {
 
         URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data,
-                  let result = try? JSONDecoder().decode(OllamaResponse.self, from: data)
-            else {
+                  let result = try? JSONDecoder().decode(OllamaResponse.self, from: data) else {
                 completion("Unknown")
                 return
             }
             completion(result.response.trimmingCharacters(in: .whitespacesAndNewlines))
         }.resume()
     }
+}
+
+
+private func currentHourPeriod() -> String {
+    let now = Date()
+    let calendar = Calendar.current
+    let hour = calendar.component(.hour, from: now)
+    let nextHour = (hour + 1) % 24
+    return String(format: "%02d:00 - %02d:00", hour, nextHour)
 }

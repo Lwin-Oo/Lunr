@@ -19,5 +19,11 @@ struct DailyAppSession: Codable, Identifiable {
 
 struct DailyLog: Codable {
     let date: String
+    var sessions: [DailyAppSession]?
+    var periods: [PeriodSessionGroup]?
+}
+
+struct PeriodSessionGroup: Codable {
+    let period: String
     let sessions: [DailyAppSession]
 }

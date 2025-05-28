@@ -367,29 +367,23 @@ struct LunrDashboard: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("📊 Usage Portfolio").font(.headline)
 
-            let grouped = Dictionary(grouping: usageData, by: { $0.classification })
-            let formatted = grouped.map { (category, sessions) in
-                let total = sessions.map { Double($0.durationSeconds) / 60 }.reduce(0, +)
-                let apps = Dictionary(grouping: sessions, by: { $0.app })
-                    .map { (name, items) -> (String, String, Double) in
-                        let title = items.last?.windowTitle ?? "Unknown"
-                        let totalTime = items.map { Double($0.durationSeconds) / 60 }.reduce(0, +)
-                        return (name, title, totalTime)
-                    }
-                    .sorted { $0.2 > $1.2 }
-                return (category: category, total: total, apps: apps)
+            let (formatted, total) = formattedUsageData()
+
+            if formatted.isEmpty {
+                Text("No usage data to display.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            } else {
+                HoverPieChart(
+                    data: formatted,
+                    total: total,
+                    size: CGSize(width: 180, height: 180)
+                )
             }
-            .sorted { $0.total > $1.total }
-
-            let total = formatted.map(\.total).reduce(0, +)
-
-            HoverPieChart(
-                data: formatted,
-                total: total,
-                size: CGSize(width: 180, height: 180)
-            )
         }
     }
+
+
 
 
 
@@ -513,17 +507,29 @@ struct LunrDashboard: View {
 
 
     private func loadData(for date: Date) {
-        let filename = formattedDate(date) + ".json"
-        let path = FileManager.default
+        let fileManager = FileManager.default
+        let dir = fileManager
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Lunr/logs/\(filename)")
-        if let data = try? Data(contentsOf: path),
-           let decoded = try? JSONDecoder().decode(DailyLog.self, from: data) {
-            usageData = decoded.sessions
-        } else {
+            .appendingPathComponent("Lunr/Screentime")
+
+        let filename = formattedDate(date) + ".json"
+
+
+        let path = dir.appendingPathComponent(filename)
+
+
+        guard let data = try? Data(contentsOf: path),
+              let decoded = try? JSONDecoder().decode(DailyLog.self, from: data),
+              let periodGroups = decoded.periods else {
             usageData = []
+            return
         }
+
+        // Flatten all sessions from all periods
+        usageData = periodGroups.flatMap { $0.sessions }
     }
+
+
     
     private func loadGoal(for user: User) -> Goal? {
         let goalsDir = FileManager.default
@@ -582,15 +588,21 @@ struct LunrDashboard: View {
     private func openLogInFinder() {
         let fileURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Lunr/logs/\(formattedDate(selectedDate)).json")
+            .appendingPathComponent("Lunr/Screentime/\(formattedDate(selectedDate)).json")
         NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 
     private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.month, .day, .year], from: date)
+
+        let month = components.month ?? 1
+        let day = components.day ?? 1
+        let year = components.year ?? 2025 % 100 // Get last two digits
+
+        return "\(month)-\(day)-\(year)"
     }
+
 
     private func formattedTotalTime() -> String {
         let total = usageData.reduce(0) { $0 + $1.durationSeconds }
@@ -615,6 +627,47 @@ struct LunrDashboard: View {
         userManager.currentUser = nil
         userManager.isUserLoaded = true // reset so onboarding shows
     }
+    
+    private func formattedUsageData() -> (
+        data: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])],
+        total: Double
+    ) {
+        let nonZeroSessions = usageData.filter { $0.durationSeconds > 0 }
+
+        let grouped = Dictionary(grouping: nonZeroSessions, by: { $0.classification })
+
+        var formatted: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])] = []
+
+        for (category, sessions) in grouped {
+            let totalMinutes = sessions.reduce(0.0) { sum, session in
+                sum + Double(session.durationSeconds) / 60
+            }
+
+            let appsGrouped = Dictionary(grouping: sessions, by: { $0.app })
+            var apps: [(String, String, Double)] = []
+
+            for (name, items) in appsGrouped {
+                let title = items.last?.windowTitle ?? "Unknown"
+                let appMinutes = items.reduce(0.0) { sum, session in
+                    sum + Double(session.durationSeconds) / 60
+                }
+                apps.append((name, title, appMinutes))
+            }
+
+            apps.sort { $0.2 > $1.2 }
+
+            if totalMinutes > 0 {
+                formatted.append((category, totalMinutes, apps))
+            }
+        }
+
+        formatted.sort { $0.total > $1.total }
+
+        let total = formatted.reduce(0.0) { $0 + $1.total }
+
+        return (formatted, total)
+    }
+
 
 }
 
