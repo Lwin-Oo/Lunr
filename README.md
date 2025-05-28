@@ -1,13 +1,12 @@
-
 # 🌙 Lunr – The AI Agent for Deep Focus & Aligned Progress
 
-**Lunr** is a macOS-native productivity operating system that keeps you focused, aligned with your goals, and resilient against digital distractions. Powered by on-device AI and built with parallel computing principles, Lunr doesn’t just track your activity — it *understands* you.
+**Lunr** is a macOS-native productivity operating system designed to help you stay focused, aligned with your goals, and resilient against digital distractions. Powered by on-device AI and built with parallel computing principles, Lunr doesn’t just track your activity — it *understands* you.
 
 ---
 
 ## 🧠 What Is Lunr?
 
-Lunr is your second brain — a contextual, motivational AI agent that learns from your behavior, helps you break down goals, and ensures your computer time reflects your real-life ambitions. Whether you’re coding, designing, or just trying to finish that one damn thing, Lunr watches, reflects, and guides — without cloud syncs or surveillance.
+Lunr is your second brain — a contextual, motivational AI agent that learns from your behavior, helps you break down goals, and ensures your computer time aligns with your real-life ambitions. Whether you're coding, designing, or trying to finish that one thing, Lunr observes, reflects, and guides — all without cloud syncs or surveillance.
 
 ---
 
@@ -18,81 +17,77 @@ Lunr is your second brain — a contextual, motivational AI agent that learns fr
   - Automatically generate daily and weekly step-by-step roadmaps using LLMs.
 
 - **📊 Usage Awareness**
-  - Monitors your app sessions and classifies them using AI into categories like `Code`, `Design`, `Entertainment`, `Social`, and more.
-  - Gives you daily summaries and behavioral analysis.
+  - Monitors your app sessions and uses AI to classify them into categories like `Code`, `Design`, `Entertainment`, `Social`, and more.
+  - Provides daily summaries and behavioral insights.
 
 - **💬 AI-Powered Encouragement**
-  - Context-aware motivation generated from your mood, today’s weather, and focus.
-  - Uses local LLMs (via [Ollama](https://ollama.com)) — no internet or cloud calls.
+  - Offers context-aware motivation generated based on your mood, the weather, and your focus level.
+  - Utilizes local LLMs (via [Ollama](https://ollama.com)) — no internet or cloud required.
 
 - **🔐 100% Private & Local**
-  - All AI runs on-device. No external API calls. No surveillance. No leaks.
+  - All AI runs on-device. No external API calls. No surveillance. No data leaks.
 
 ---
 
-## ⚙️ Built with Parallel Computing in Mind
+## ⚙️ Engineered for Efficiency
 
-Lunr isn’t just smart — it’s efficient.
+Lunr is designed with performance in mind — optimized for Apple Silicon and real-time responsiveness.
 
 - **🧵 Multi-threaded Monitoring Engine**
-  - App usage logging and LLM classification tasks are parallelized using GCD and timer threads.
-  - Prevents bottlenecks during real-time interaction tracking.
+  - App usage logging and AI classification tasks run in parallel using GCD and timer threads.
+  - Eliminates bottlenecks during real-time interaction tracking.
 
 - **🧩 Modular AI Pipelines**
-  - Tasks like classification, encouragement generation, and progress parsing run independently using asynchronous pipelines.
-  - Encouragement and categorization don’t block UI or user tasks.
+  - Tasks such as classification, motivation generation, and progress tracking run independently via asynchronous pipelines.
+  - Encouragement and categorization never block the UI.
 
 - **📈 Hardware-Conscious Performance**
-  - Designed to leverage Apple Silicon’s architecture.
-  - LLMs run via `llm-optimized` models (e.g., Mistral) through Ollama backend using multiple system threads for fast response.
+  - Designed to harness the full power of Apple Silicon architecture.
+  - LLMs run using `llm-optimized` models (e.g., Mistral) via the Ollama backend with multithreaded performance.
 
 ---
 
-## 💻 Who Is It For?
+## 💻 Who Is Lunr For?
 
-- Indie hackers, builders, creators.
-- People working toward a goal and want their computer to help, not sabotage.
-- Those who care about **privacy, productivity, and purpose**.
+- Indie hackers, builders, and creators.
+- Individuals working toward meaningful goals who want their computer to support — not sabotage — them.
+- Anyone who values **privacy, productivity, and purpose**.
 
 ---
 
-## 🛠 How to Run (Dev Setup)
+## 🛠 Developer Setup
 
-> Requires macOS 13+, Xcode 15+
+> Requirements: macOS 13+, Xcode 15+
 
-1. Clone the repo:
+1. Clone the repository:
    ```bash
    git clone https://github.com/your-org/lunr.git
    cd lunr
-````
+   ```
 
-2. Start Ollama LLM backend:
-
+2. Start the Ollama LLM backend:
    ```bash
    ollama run mistral
    ```
 
-3. Open `Lunr.xcodeproj` and run the app.
+3. Open `Lunr.xcodeproj` in Xcode and run the app.
 
 ---
 
-## 📚 Future Directions
+## 📚 Future Roadmap
 
-* Local emotion detection using webcam input (with permission)
-* Real-time distraction intervention (AI-based blocking)
-* Cloud-sync for encrypted data (opt-in only)
-* Plugin system for customizable workflows (e.g., “Focus Mode for Designers”)
+- Local emotion detection via webcam (with explicit permission)
+- Real-time distraction detection and intervention
+- Optional encrypted cloud sync
+- Plugin architecture for custom workflows (e.g., “Focus Mode for Designers”)
 
 ---
 
-## 👨‍💻 Built by a Builder
+## 👨‍💻 Made by a Builder
 
-Lunr was built from frustration — and hope — by real a real creator who wanted his tools to support him, not just distract him.
+Lunr was born out of frustration — and built with hope — by a creator who wanted tools that support ambition, not distract from it.
 
 ---
 
 > “Your time is finite. Lunr makes sure you don’t waste it.”
-
----
-
 
