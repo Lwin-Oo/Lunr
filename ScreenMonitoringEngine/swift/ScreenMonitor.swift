@@ -163,43 +163,43 @@ final class MonitoringEngine {
     }
 
     private func saveSession(app: String, title: String, start: Date, end: Date, category: String) {
-        let calendar = Calendar.current
-        let fileName = DateFormatter.localizedString(from: start, dateStyle: .short, timeStyle: .none)
-            .replacingOccurrences(of: "/", with: "-")
-        let jsonFile = baseDirectory.appendingPathComponent("\(fileName).json")
-        let startHour = calendar.component(.hour, from: start)
-        let periodLabel = String(format: "%02d:00 - %02d:00", startHour, (startHour + 1) % 24)
+            let calendar = Calendar.current
+            let fileName = DateFormatter.localizedString(from: start, dateStyle: .short, timeStyle: .none)
+                .replacingOccurrences(of: "/", with: "-")
+            let jsonFile = baseDirectory.appendingPathComponent("\(fileName).json")
+            let startHour = calendar.component(.hour, from: start)
+            let periodLabel = String(format: "%02d:00 - %02d:00", startHour, (startHour + 1) % 24)
 
-        var json: [String: Any] = ["date": formattedToday(), "periods": [:]]
+            var json: [String: Any] = ["date": formattedToday(), "periods": [:]]
 
-        // ⬇️ Try to load existing JSON and merge it
-        if let data = try? Data(contentsOf: jsonFile),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let existingPeriods = existing["periods"] as? [String: [[String: Any]]] {
-            json["periods"] = existingPeriods
-        }
+            // ⬇️ Try to load existing JSON and merge it
+            if let data = try? Data(contentsOf: jsonFile),
+               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let existingPeriods = existing["periods"] as? [String: [[String: Any]]] {
+                json["periods"] = existingPeriods
+            }
 
-        var periods = json["periods"] as? [String: [[String: Any]]] ?? [:]
-        var periodSessions = periods[periodLabel] ?? []
+            var periods = json["periods"] as? [String: [[String: Any]]] ?? [:]
+            var periodSessions = periods[periodLabel] ?? []
 
-        let session: [String: Any] = [
-            "id": UUID().uuidString,
-            "classification": category,
-            "app": app,
-            "windowTitle": title,
-            "startTime": iso8601(start),
-            "endTime": iso8601(end),
-            "durationSeconds": Int(end.timeIntervalSince(start))
-        ]
+            let session: [String: Any] = [
+                "id": UUID().uuidString,
+                "classification": category,
+                "app": app,
+                "windowTitle": title,
+                "startTime": iso8601(start),
+                "endTime": iso8601(end),
+                "durationSeconds": Int(end.timeIntervalSince(start))
+            ]
 
-        periodSessions.append(session)
-        periods[periodLabel] = periodSessions
-        json["periods"] = periods
+            periodSessions.append(session)
+            periods[periodLabel] = periodSessions
+            json["periods"] = periods
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-            try? jsonData.write(to: jsonFile)
-            print("✅ Appended to: \(jsonFile.path)")
-        }
+            if let jsonData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+                try? jsonData.write(to: jsonFile)
+                print("✅ Appended to: \(jsonFile.path)")
+            }
     }
 
 
@@ -298,6 +298,39 @@ final class MonitoringEngine {
             completion(result.response.trimmingCharacters(in: .whitespacesAndNewlines))
         }.resume()
     }
+    
+    private func flushSessionsToDisk() {
+        let fileDate = formattedShortFilenameDate() // M-d-yy
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Lunr/Screentime", isDirectory: true)
+
+        let fileURL = dir.appendingPathComponent("\(fileDate).json")
+        var groupedByPeriod: [String: [DailyAppSession]] = [:]
+
+        for session in sessions {
+            let period = currentHourPeriod()
+            groupedByPeriod[period, default: []].append(session)
+        }
+
+        var periodGroups: [PeriodSessionGroup] = groupedByPeriod.map {
+            PeriodSessionGroup(period: $0.key, sessions: $0.value)
+        }
+
+        periodGroups.sort { $0.period < $1.period }
+        let log = DailyLog(date: formattedToday(), periods: periodGroups)
+
+        if let data = try? JSONEncoder().encode(log) {
+            try? data.write(to: fileURL)
+            print("🧾 Live session flushed to: \(fileURL.lastPathComponent)")
+        }
+    }
+
+    private func formattedShortFilenameDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M-d-yy"
+        return formatter.string(from: Date())
+    }
+
 }
 
 

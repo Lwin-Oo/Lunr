@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Charts
 
 struct LunrDashboard: View {
     @ObservedObject private var userManager = UserManager.shared
@@ -18,11 +19,12 @@ struct LunrDashboard: View {
     @State private var stepRequirements: [UUID: [ToolUsageRequirement]] = [:]
     @State private var todayReflection: DailyReflection?
     @State private var encouragementText: String = ""
-
+    @State private var fileWatcher: DispatchSourceFileSystemObject?
+    
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 60) {
                     headerSection
                     roadmapSection
                     monitoringToggleSection
@@ -31,7 +33,7 @@ struct LunrDashboard: View {
                     categorizedUsageSection
                     rawLogSection
                 }
-                .padding()
+                .padding(5)
             }
             .navigationTitle("Lunr OS")
             .onAppear {
@@ -39,7 +41,8 @@ struct LunrDashboard: View {
                 loadAllGoalRoadmaps()
                 isMonitoring = MonitoringEngine.shared.isRunning
                 startCountdown()
-
+                startFileWatcher(for: selectedDate)
+                
                 WeatherManager.shared.fetchWeather { weatherData in
                     guard let weather = weatherData else {
                         DispatchQueue.main.async {
@@ -60,8 +63,57 @@ struct LunrDashboard: View {
                     }
                 }
             }
+            
+            .onChange(of: selectedDate) {
+                loadData(for: $0)
+                startFileWatcher(for: $0)
+            }
 
         }
+    }
+    
+    private func startFileWatcher(for date: Date) {
+        let fileManager = FileManager.default
+        let dir = fileManager
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Lunr/Screentime")
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M-d-yy"
+        let filename = formatter.string(from: date) + ".json"
+        let path = dir.appendingPathComponent(filename)
+
+        guard FileManager.default.fileExists(atPath: path.path) else {
+            print("❌ File does not exist: \(path.path)")
+            return
+        }
+
+        let fileDescriptor = open(path.path, O_EVTONLY)
+        guard fileDescriptor != -1 else {
+            print("❌ Failed to open file descriptor.")
+            return
+        }
+
+        fileWatcher?.cancel() // Cancel previous watcher if it exists
+
+        fileWatcher = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: .write,
+            queue: DispatchQueue.main
+        )
+
+        fileWatcher?.setEventHandler {
+            DispatchQueue.main.async {
+                print("🔁 Detected change to \(filename). Reloading data...")
+                self.loadData(for: date)
+            }
+        }
+
+        fileWatcher?.setCancelHandler {
+            close(fileDescriptor)
+        }
+
+        fileWatcher?.resume()
     }
     
     private func currentRoadmapStepIndex(for roadmap: Roadmap) -> Int? {
@@ -363,27 +415,42 @@ struct LunrDashboard: View {
     
     // MARK: - Usage Logs
 
+//    private var categorizedUsageSection: some View {
+//        VStack(alignment: .leading, spacing: 16) {
+//            Text("📊 Usage Portfolio").font(.headline)
+//
+//            let (formatted, total) = formattedUsageData()
+//
+//            if formatted.isEmpty {
+//                Text("No usage data to display.")
+//                    .font(.caption)
+//                    .foregroundColor(.gray)
+//            } else {
+//                HoverPieChart(
+//                    data: formatted,
+//                    total: total,
+//                    size: CGSize(width: 180, height: 180)
+//                )
+//            }
+//        }
+//    }
+
     private var categorizedUsageSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("📊 Usage Portfolio").font(.headline)
+            Text("📊 Time by Category")
+                .font(.headline)
 
-            let (formatted, total) = formattedUsageData()
-
-            if formatted.isEmpty {
+            if usageData.isEmpty {
                 Text("No usage data to display.")
                     .font(.caption)
                     .foregroundColor(.gray)
             } else {
-                HoverPieChart(
-                    data: formatted,
-                    total: total,
-                    size: CGSize(width: 180, height: 180)
-                )
+                UsageDonutChartView(sessions: usageData)
+                    .frame(height: 260) // Adjust as needed
             }
         }
+        .padding(.horizontal)
     }
-
-
 
 
 
@@ -710,126 +777,322 @@ struct SummaryCard: View {
     }
 }
 
-// MARK: - PieChart
-struct HoverPieChart: View {
-    let data: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])]
-    let total: Double
-    let size: CGSize
+//// MARK: - PieChart
+//struct HoverPieChart: View {
+//    let data: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])]
+//    let total: Double
+//    let size: CGSize
+//
+//    @State private var selectedCategory: String?
+//
+//    var body: some View {
+//        HStack(spacing: 20) {
+//            // Left Label Panel
+//            VStack(alignment: .leading, spacing: 6) {
+//                if let selected = selectedCategory,
+//                   let slice = data.first(where: { $0.category == selected }) {
+//                    Text("📂 Category: \(slice.category)").font(.caption.bold())
+//                    ForEach(slice.apps.prefix(5), id: \.name) { app in
+//                        VStack(alignment: .leading, spacing: 2) {
+//                            Text("• \(app.name)").font(.caption2.bold())
+//                            Text("🪟 \(app.windowTitle)").font(.caption2).foregroundColor(.gray)
+//                            Text("⏱ \(Int(app.duration)) mins").font(.caption2)
+//                        }
+//                        .padding(.bottom, 4)
+//                    }
+//                    if slice.apps.count > 5 {
+//                        Text("...").font(.caption2)
+//                    }
+//                } else {
+//                    Text("Tap a slice").font(.caption).foregroundColor(.gray)
+//                }
+//            }
+//            .frame(width: 160)
+//
+//            // Pie Chart
+//            Canvas { context, size in
+//                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+//                let radius = min(size.width, size.height) / 2
+//                var startAngle = -90.0
+//
+//                for (index, item) in data.enumerated() {
+//                    let angleSpan = (item.total / max(total, 1)) * 360
+//                    let endAngle = startAngle + angleSpan
+//
+//                    let path = Path { path in
+//                        path.move(to: center)
+//                        path.addArc(center: center,
+//                                    radius: radius,
+//                                    startAngle: .degrees(startAngle),
+//                                    endAngle: .degrees(endAngle),
+//                                    clockwise: false)
+//                        path.closeSubpath()
+//                    }
+//
+//                    let isSelected = selectedCategory == item.category
+//                    let shade = 0.15 + (Double(index) / Double(data.count)) * 0.6
+//                    let fill = Color(white: isSelected ? 0.2 : shade)
+//
+//                    context.fill(path, with: .color(fill))
+//                    context.stroke(path, with: .color(.black), lineWidth: 1)
+//
+//                    startAngle = endAngle
+//                }
+//            }
+//            .frame(width: size.width, height: size.height)
+//            .contentShape(Rectangle())
+//            .gesture(
+//                DragGesture(minimumDistance: 0)
+//                    .onEnded { value in
+//                        let local = value.location
+//                        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+//                        let dx = local.x - center.x
+//                        let dy = local.y - center.y
+//                        let angle = atan2(dy, dx) * 180 / .pi + 90
+//                        let normalized = angle < 0 ? angle + 360 : angle
+//
+//                        var runningTotal = 0.0
+//                        for item in data {
+//                            let percent = item.total / max(total, 1)
+//                            let span = percent * 360
+//                            if normalized >= runningTotal && normalized < runningTotal + span {
+//                                selectedCategory = item.category
+//                                return
+//                            }
+//                            runningTotal += span
+//                        }
+//                    }
+//            )
+//        }
+//    }
+//}
+//
+//
+//// MARK: - PieSlice
+//struct PieSlice: View {
+//    let center: CGPoint
+//    let radius: CGFloat
+//    let startAngle: Double
+//    let endAngle: Double
+//    let isHighlighted: Bool
+//
+//    var body: some View {
+//        Path { path in
+//            path.move(to: center)
+//            path.addArc(center: center,
+//                        radius: radius,
+//                        startAngle: .degrees(startAngle),
+//                        endAngle: .degrees(endAngle),
+//                        clockwise: false)
+//        }
+//        .fill(isHighlighted ? Color.gray.opacity(0.25) : Color.gray.opacity(0.08))
+//        .overlay(
+//            Path { path in
+//                path.move(to: center)
+//                path.addArc(center: center,
+//                            radius: radius,
+//                            startAngle: .degrees(startAngle),
+//                            endAngle: .degrees(endAngle),
+//                            clockwise: false)
+//            }
+//            .stroke(Color.black, lineWidth: 1)
+//        )
+//    }
+//}
 
-    @State private var selectedCategory: String?
+// MARK: - UsageBarChartView
 
-    var body: some View {
-        HStack(spacing: 20) {
-            // Left Label Panel
-            VStack(alignment: .leading, spacing: 6) {
-                if let selected = selectedCategory,
-                   let slice = data.first(where: { $0.category == selected }) {
-                    Text("📂 Category: \(slice.category)").font(.caption.bold())
-                    ForEach(slice.apps.prefix(5), id: \.name) { app in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("• \(app.name)").font(.caption2.bold())
-                            Text("🪟 \(app.windowTitle)").font(.caption2).foregroundColor(.gray)
-                            Text("⏱ \(Int(app.duration)) mins").font(.caption2)
-                        }
-                        .padding(.bottom, 4)
-                    }
-                    if slice.apps.count > 5 {
-                        Text("...").font(.caption2)
-                    }
-                } else {
-                    Text("Tap a slice").font(.caption).foregroundColor(.gray)
-                }
-            }
-            .frame(width: 160)
+struct BreakdownItem: Identifiable {
+  let id = UUID()
+  let app: String
+  let windowTitle: String
+  let duration: TimeInterval
+}
 
-            // Pie Chart
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = min(size.width, size.height) / 2
-                var startAngle = -90.0
+// support key for grouping
+private struct AppWindowKey: Hashable {
+  let app: String
+  let windowTitle: String
+}
 
-                for (index, item) in data.enumerated() {
-                    let angleSpan = (item.total / max(total, 1)) * 360
-                    let endAngle = startAngle + angleSpan
+struct UsageDonutChartView: View {
+  let sessions: [DailyAppSession]
+  @State private var selectedCategory: String?
+  @State private var debugLog: String = ""      // on‑screen log
 
-                    let path = Path { path in
-                        path.move(to: center)
-                        path.addArc(center: center,
-                                    radius: radius,
-                                    startAngle: .degrees(startAngle),
-                                    endAngle: .degrees(endAngle),
-                                    clockwise: false)
-                        path.closeSubpath()
-                    }
+  // 1️⃣ Three‑bucket summary
+  private var groupedData: [(category: String, duration: TimeInterval)] {
+    let byCat = Dictionary(grouping: sessions) {
+      mapToMainCategory($0.classification)
+    }
+    return byCat.map { cat, sessions in
+      (cat, sessions.reduce(0) { $0 + TimeInterval($1.durationSeconds) })
+    }
+    .sorted { $0.duration > $1.duration }
+  }
 
-                    let isSelected = selectedCategory == item.category
-                    let shade = 0.15 + (Double(index) / Double(data.count)) * 0.6
-                    let fill = Color(white: isSelected ? 0.2 : shade)
+  private var totalDuration: TimeInterval {
+    groupedData.map(\.duration).reduce(0, +)
+  }
 
-                    context.fill(path, with: .color(fill))
-                    context.stroke(path, with: .color(.black), lineWidth: 1)
+  // 2️⃣ Breakdown items
+  private var breakdownData: [BreakdownItem] {
+    guard let sel = selectedCategory else { return [] }
+    let filtered = sessions.filter {
+      mapToMainCategory($0.classification) == sel
+    }
+    let byKey = Dictionary(grouping: filtered) { s in
+      AppWindowKey(app: s.app, windowTitle: s.windowTitle)
+    }
+    return byKey
+      .map { key, group in
+        let dur = group.reduce(0) { $0 + TimeInterval($1.durationSeconds) }
+        return BreakdownItem(app: key.app,
+                             windowTitle: key.windowTitle,
+                             duration: dur)
+      }
+      .sorted { $0.duration > $1.duration }
+  }
 
-                    startAngle = endAngle
-                }
-            }
-            .frame(width: size.width, height: size.height)
+  var body: some View {
+    VStack(spacing: 8) {
+      Text("🧭 Time by Category")
+        .font(.headline)
+
+      // 3️⃣ Donut chart
+      Chart {
+        ForEach(groupedData, id: \.category) { item in
+          SectorMark(
+            angle: .value("Time", item.duration),
+            innerRadius: .ratio(0.6),
+            angularInset: 2
+          )
+          .foregroundStyle(colorForMainCategory(item.category))
+        }
+      }
+      .chartLegend(.hidden)
+      .frame(height: 200)
+      .chartOverlay { _ in
+        GeometryReader { geo in
+          Rectangle()
+            .fill(Color.clear)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                        let local = value.location
-                        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                        let dx = local.x - center.x
-                        let dy = local.y - center.y
-                        let angle = atan2(dy, dx) * 180 / .pi + 90
-                        let normalized = angle < 0 ? angle + 360 : angle
+              DragGesture(minimumDistance: 0)
+                .onEnded { value in
+                  // detect tap angle
+                  let center = CGPoint(x: geo.size.width/2, y: geo.size.height/2)
+                  let dx = value.location.x - center.x
+                  let dy = value.location.y - center.y
+                  var angle = atan2(dy, dx) * 180 / .pi + 90
+                  if angle < 0 { angle += 360 }
 
-                        var runningTotal = 0.0
-                        for item in data {
-                            let percent = item.total / max(total, 1)
-                            let span = percent * 360
-                            if normalized >= runningTotal && normalized < runningTotal + span {
-                                selectedCategory = item.category
-                                return
-                            }
-                            runningTotal += span
-                        }
+                  // pick category
+                  var startAngle = 0.0
+                  for item in groupedData {
+                    let span = item.duration / max(totalDuration, 1) * 360
+                    if angle >= startAngle && angle < startAngle + span {
+                      selectedCategory = item.category
+                      break
                     }
+                    startAngle += span
+                  }
+
+                  // update on‑screen log
+                  let count = breakdownData.count
+                  let lines = breakdownData.map { "\($0.app) | \($0.windowTitle) | \(formatDuration($0.duration))" }
+                  debugLog = """
+                  Selected: \(selectedCategory ?? "nil")
+                  Items: \(count)
+                  \(lines.joined(separator: "\n"))
+                  """
+                }
             )
         }
-    }
-}
+      }
 
-
-// MARK: - PieSlice
-struct PieSlice: View {
-    let center: CGPoint
-    let radius: CGFloat
-    let startAngle: Double
-    let endAngle: Double
-    let isHighlighted: Bool
-
-    var body: some View {
-        Path { path in
-            path.move(to: center)
-            path.addArc(center: center,
-                        radius: radius,
-                        startAngle: .degrees(startAngle),
-                        endAngle: .degrees(endAngle),
-                        clockwise: false)
-        }
-        .fill(isHighlighted ? Color.gray.opacity(0.25) : Color.gray.opacity(0.08))
-        .overlay(
-            Path { path in
-                path.move(to: center)
-                path.addArc(center: center,
-                            radius: radius,
-                            startAngle: .degrees(startAngle),
-                            endAngle: .degrees(endAngle),
-                            clockwise: false)
+      // 4️⃣ Legend
+      VStack(alignment: .leading, spacing: 4) {
+        ForEach(groupedData, id: \.category) { item in
+          HStack {
+            Circle()
+              .fill(colorForMainCategory(item.category))
+              .frame(width: 8, height: 8)
+            Text("\(item.category): \(formatDuration(item.duration))")
+              .font(.caption)
+            if item.category == selectedCategory {
+              Text("✓").font(.caption).foregroundColor(.blue)
             }
-            .stroke(Color.black, lineWidth: 1)
-        )
+          }
+        }
+      }
+
+      // 📋 On‑screen debug log
+      ScrollView {
+        Text(debugLog)
+          .font(.system(.caption2, design: .monospaced))
+          .foregroundColor(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, 4)
+      }
+      .frame(height: 100)
+      .background(Color(.quaternarySystemFill))
+      .cornerRadius(4)
+
+      // 6️⃣ Breakdown list
+      if let cat = selectedCategory, !breakdownData.isEmpty {
+        Divider().padding(.vertical, 4)
+//        Text("Breakdown for \(cat)")
+//          .font(.subheadline.bold())
+
+        ScrollView {
+          VStack(alignment: .leading, spacing: 6) {
+            ForEach(breakdownData) { row in
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(row.app).font(.caption2.bold())
+                  Text(row.windowTitle)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                }
+                Spacer()
+                Text(formatDuration(row.duration))
+                  .font(.caption2)
+              }
+            }
+          }
+          .padding(.horizontal, 4)
+        }
+        .frame(maxHeight: 150)
+        .border(Color.blue, width: 1)
+      }
     }
+    .padding(.horizontal)
+  }
 }
 
+// ——— Helpers ———
+
+func formatDuration(_ d: TimeInterval) -> String {
+  let m = Int(d)/60, h = m/60, r = m%60
+  return h>0 ? "\(h)h \(r)m" : "\(r)m"
+}
+
+func mapToMainCategory(_ c: String) -> String {
+  let l = c.lowercased()
+  if l.contains("code") || l.contains("design") || l.contains("writing") || l.contains("productive") {
+    return "Productivity"
+  } else if l.contains("entertainment") || l.contains("gaming") || l.contains("social") {
+    return "Entertainment"
+  }
+  return "Utils"
+}
+
+func colorForMainCategory(_ cat: String) -> Color {
+  switch cat {
+  case "Productivity": return .blue
+  case "Entertainment": return .orange
+  case "Utils":         return .gray
+  default:              return .black
+  }
+}
