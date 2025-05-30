@@ -24,14 +24,21 @@ struct LunrDashboard: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 60) {
+                ScrollView {
+                  VStack(alignment: .leading, spacing: 24) {
                     headerSection
                     roadmapSection
                     monitoringToggleSection
                     calendarPickerSection
                     summaryCardsSection
-                    categorizedUsageSection
+
+                    // ✅ Add space to prevent overlap
+                    UsageDonutChartView(sessions: usageData)
+                      .padding(.bottom, 32)
+
                     rawLogSection
+                  }
+                  .padding()
                 }
                 .padding(5)
             }
@@ -901,32 +908,22 @@ struct SummaryCard: View {
 //}
 
 // MARK: - UsageBarChartView
-
 struct BreakdownItem: Identifiable {
   let id = UUID()
   let app: String
-  let windowTitle: String
   let duration: TimeInterval
-}
-
-// support key for grouping
-private struct AppWindowKey: Hashable {
-  let app: String
-  let windowTitle: String
 }
 
 struct UsageDonutChartView: View {
   let sessions: [DailyAppSession]
   @State private var selectedCategory: String?
-  @State private var debugLog: String = ""      // on‑screen log
 
-  // 1️⃣ Three‑bucket summary
   private var groupedData: [(category: String, duration: TimeInterval)] {
     let byCat = Dictionary(grouping: sessions) {
       mapToMainCategory($0.classification)
     }
-    return byCat.map { cat, sessions in
-      (cat, sessions.reduce(0) { $0 + TimeInterval($1.durationSeconds) })
+    return byCat.map { (cat, items) in
+      (cat, items.reduce(0) { $0 + TimeInterval($1.durationSeconds) })
     }
     .sorted { $0.duration > $1.duration }
   }
@@ -935,83 +932,74 @@ struct UsageDonutChartView: View {
     groupedData.map(\.duration).reduce(0, +)
   }
 
-  // 2️⃣ Breakdown items
   private var breakdownData: [BreakdownItem] {
     guard let sel = selectedCategory else { return [] }
-    let filtered = sessions.filter {
-      mapToMainCategory($0.classification) == sel
+    let filtered = sessions.filter { mapToMainCategory($0.classification) == sel }
+    let byApp = Dictionary(grouping: filtered, by: { $0.app })
+    let result = byApp.map { (app, items) in
+      BreakdownItem(app: app, duration: items.reduce(0) { $0 + TimeInterval($1.durationSeconds) })
     }
-    let byKey = Dictionary(grouping: filtered) { s in
-      AppWindowKey(app: s.app, windowTitle: s.windowTitle)
+    .sorted { $0.duration > $1.duration }
+
+    // Log for debug
+    print("🧩 Selected Category: \(sel)")
+    print("📦 Breakdown Count: \(result.count)")
+    for b in result {
+      print("🔹 App: \(b.app), Duration: \(formatDuration(b.duration))")
     }
-    return byKey
-      .map { key, group in
-        let dur = group.reduce(0) { $0 + TimeInterval($1.durationSeconds) }
-        return BreakdownItem(app: key.app,
-                             windowTitle: key.windowTitle,
-                             duration: dur)
-      }
-      .sorted { $0.duration > $1.duration }
+
+    return result
   }
 
   var body: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: 16) {
       Text("🧭 Time by Category")
-        .font(.headline)
+        .font(.title3.bold())
 
-      // 3️⃣ Donut chart
-      Chart {
-        ForEach(groupedData, id: \.category) { item in
-          SectorMark(
-            angle: .value("Time", item.duration),
-            innerRadius: .ratio(0.6),
-            angularInset: 2
-          )
-          .foregroundStyle(colorForMainCategory(item.category))
-        }
-      }
-      .chartLegend(.hidden)
-      .frame(height: 200)
-      .chartOverlay { _ in
-        GeometryReader { geo in
-          Rectangle()
-            .fill(Color.clear)
-            .contentShape(Rectangle())
-            .gesture(
-              DragGesture(minimumDistance: 0)
-                .onEnded { value in
-                  // detect tap angle
-                  let center = CGPoint(x: geo.size.width/2, y: geo.size.height/2)
-                  let dx = value.location.x - center.x
-                  let dy = value.location.y - center.y
-                  var angle = atan2(dy, dx) * 180 / .pi + 90
-                  if angle < 0 { angle += 360 }
-
-                  // pick category
-                  var startAngle = 0.0
-                  for item in groupedData {
-                    let span = item.duration / max(totalDuration, 1) * 360
-                    if angle >= startAngle && angle < startAngle + span {
-                      selectedCategory = item.category
-                      break
-                    }
-                    startAngle += span
-                  }
-
-                  // update on‑screen log
-                  let count = breakdownData.count
-                  let lines = breakdownData.map { "\($0.app) | \($0.windowTitle) | \(formatDuration($0.duration))" }
-                  debugLog = """
-                  Selected: \(selectedCategory ?? "nil")
-                  Items: \(count)
-                  \(lines.joined(separator: "\n"))
-                  """
-                }
+      ZStack {
+        Chart {
+          ForEach(groupedData, id: \.category) { item in
+            SectorMark(
+              angle: .value("Duration", item.duration),
+              innerRadius: .ratio(0.6),
+              angularInset: 2
             )
+            .foregroundStyle(colorForMainCategory(item.category))
+          }
+        }
+        .chartLegend(.hidden)
+        .frame(width: 240, height: 240)
+        .padding(.top, 12)
+        .chartOverlay { _ in
+          GeometryReader { geo in
+            Rectangle()
+              .fill(Color.clear)
+              .contentShape(Rectangle())
+              .gesture(
+                DragGesture(minimumDistance: 0)
+                  .onEnded { value in
+                    let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+                    let dx = value.location.x - center.x
+                    let dy = value.location.y - center.y
+                    var angle = atan2(dy, dx) * 180 / .pi + 90
+                    if angle < 0 { angle += 360 }
+
+                    var startAngle = 0.0
+                    for item in groupedData {
+                      let span = (item.duration / max(totalDuration, 1)) * 360
+                      if angle >= startAngle && angle < startAngle + span {
+                        selectedCategory = item.category
+                        print("✅ Selected category: \(item.category)")
+                        break
+                      }
+                      startAngle += span
+                    }
+                  }
+              )
+          }
         }
       }
 
-      // 4️⃣ Legend
       VStack(alignment: .leading, spacing: 4) {
         ForEach(groupedData, id: \.category) { item in
           HStack {
@@ -1021,61 +1009,53 @@ struct UsageDonutChartView: View {
             Text("\(item.category): \(formatDuration(item.duration))")
               .font(.caption)
             if item.category == selectedCategory {
-              Text("✓").font(.caption).foregroundColor(.blue)
+              Text("✓")
+                .foregroundColor(.blue)
+                .font(.caption)
             }
           }
         }
       }
 
-      // 📋 On‑screen debug log
-      ScrollView {
-        Text(debugLog)
-          .font(.system(.caption2, design: .monospaced))
-          .foregroundColor(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.vertical, 4)
-      }
-      .frame(height: 100)
-      .background(Color(.quaternarySystemFill))
-      .cornerRadius(4)
-
-      // 6️⃣ Breakdown list
-      if let cat = selectedCategory, !breakdownData.isEmpty {
+      if let cat = selectedCategory {
         Divider().padding(.vertical, 4)
-//        Text("Breakdown for \(cat)")
-//          .font(.subheadline.bold())
+        Text("Breakdown for \(cat)")
+          .font(.subheadline.bold())
+          .frame(maxWidth: .infinity, alignment: .leading)
 
-        ScrollView {
-          VStack(alignment: .leading, spacing: 6) {
-            ForEach(breakdownData) { row in
-              HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(row.app).font(.caption2.bold())
-                  Text(row.windowTitle)
+        if breakdownData.isEmpty {
+          Text("No data for this category.")
+            .font(.caption)
+            .foregroundColor(.gray)
+        } else {
+          ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+              ForEach(breakdownData) { row in
+                HStack(alignment: .top) {
+                  Text(row.app)
+                    .font(.caption2.bold())
+                  Spacer()
+                  Text(formatDuration(row.duration))
                     .font(.caption2)
-                    .foregroundColor(.gray)
                 }
-                Spacer()
-                Text(formatDuration(row.duration))
-                  .font(.caption2)
               }
             }
+            .padding(.vertical, 4)
           }
-          .padding(.horizontal, 4)
+          .frame(maxHeight: 150)
+//          .border(Color.red)
         }
-        .frame(maxHeight: 150)
-        .border(Color.blue, width: 1)
       }
     }
-    .padding(.horizontal)
+    .padding()
   }
 }
 
-// ——— Helpers ———
 
+// MARK: - Helper Functions
 func formatDuration(_ d: TimeInterval) -> String {
-  let m = Int(d)/60, h = m/60, r = m%60
-  return h>0 ? "\(h)h \(r)m" : "\(r)m"
+  let m = Int(d) / 60, h = m / 60, r = m % 60
+  return h > 0 ? "\(h)h \(r)m" : "\(r)m"
 }
 
 func mapToMainCategory(_ c: String) -> String {
@@ -1092,7 +1072,9 @@ func colorForMainCategory(_ cat: String) -> Color {
   switch cat {
   case "Productivity": return .blue
   case "Entertainment": return .orange
-  case "Utils":         return .gray
-  default:              return .black
+  case "Utils": return .gray
+  default: return .black
   }
 }
+
+
