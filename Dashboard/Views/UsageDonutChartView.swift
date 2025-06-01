@@ -14,6 +14,7 @@ import Charts
 struct BreakdownItem: Identifiable {
     let id = UUID()
     let app: String
+    let windowTitle: String
     let duration: TimeInterval
 }
 
@@ -38,22 +39,37 @@ struct UsageDonutChartView: View {
     
     private var breakdownData: [BreakdownItem] {
         guard let sel = selectedCategory else { return [] }
-        let filtered = sessions.filter { mapToMainCategory($0.classification) == sel }
-        let byApp = Dictionary(grouping: filtered, by: { $0.app })
-        let result = byApp.map { (app, items) in
-            BreakdownItem(app: app, duration: items.reduce(0) { $0 + TimeInterval($1.durationSeconds) })
+
+        let filtered = sessions.filter {
+            mapToMainCategory($0.classification) == sel
         }
-            .sorted { $0.duration > $1.duration }
-        
-        // Log for debug
+
+        struct AppWindowKey: Hashable {
+            let app: String
+            let windowTitle: String
+        }
+
+        let grouped = Dictionary(grouping: filtered, by: { AppWindowKey(app: $0.app, windowTitle: $0.windowTitle) })
+
+        let result = grouped.map { (key, items) in
+            BreakdownItem(
+                app: key.app,
+                windowTitle: key.windowTitle,
+                duration: items.reduce(0) { $0 + TimeInterval($1.durationSeconds) }
+            )
+        }
+        .sorted { $0.duration > $1.duration }
+
+        // Debug print
         print("🧩 Selected Category: \(sel)")
         print("📦 Breakdown Count: \(result.count)")
         for b in result {
-            print("🔹 App: \(b.app), Duration: \(formatDuration(b.duration))")
+            print("🔹 App: \(b.app), Window: \(b.windowTitle), Duration: \(formatDuration(b.duration))")
         }
-        
+
         return result
     }
+
     
     var body: some View {
         VStack(spacing: 16) {
@@ -126,7 +142,7 @@ struct UsageDonutChartView: View {
                 Text("Breakdown for \(cat)")
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity, alignment: .leading)
-                
+
                 if breakdownData.isEmpty {
                     Text("No data for this category.")
                         .font(.caption)
@@ -135,21 +151,28 @@ struct UsageDonutChartView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(breakdownData) { row in
-                                HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(row.app)
                                         .font(.caption2.bold())
-                                    Spacer()
-                                    Text(formatDuration(row.duration))
-                                        .font(.caption2)
+                                    HStack(alignment: .top) {
+                                        Text("– \(row.windowTitle)")
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                        Spacer()
+                                        Text(formatDuration(row.duration))
+                                            .font(.caption2)
+                                    }
                                 }
                             }
                         }
                         .padding(.vertical, 4)
                     }
                     .frame(maxHeight: 150)
-                    //          .border(Color.red)
                 }
             }
+
         }
         .padding()
     }
