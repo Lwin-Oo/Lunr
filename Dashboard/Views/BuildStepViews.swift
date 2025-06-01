@@ -4,9 +4,11 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This SwiftUI component renders a visual breakdown of each step in a user's roadmap. Steps are shown in a collapsible DisclosureGroup, including start date, duration, tools, and required tool usage. This view also calculates each step's start date sequentially based on the roadmap's creation date.
 
 import SwiftUI
 
+// MARK: - 🧩 BuildStepViews Component
 struct BuildStepViews: View {
     let goal: Goal
     let roadmap: Roadmap

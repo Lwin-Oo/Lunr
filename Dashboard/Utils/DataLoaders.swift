@@ -4,9 +4,19 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This file provides utilities to load and decode app usage data
+//  stored in JSON format for a given date.
+//
 
 import Foundation
 
+// MARK: - 📥 Load Daily Usage JSON Data
+
+/// Loads app session data for the given date from the local Screentime folder.
+/// It decodes the JSON file into `[DailyAppSession]` and passes the result via a callback.
+/// - Parameters:
+///   - date: The selected date to load data for.
+///   - onUpdate: A closure receiving the array of decoded sessions.
 func loadData(for date: Date, onUpdate: @escaping ([DailyAppSession]) -> Void) {
     let fileManager = FileManager.default
     let dir = fileManager

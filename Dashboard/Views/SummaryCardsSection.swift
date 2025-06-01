@@ -4,9 +4,12 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+// This view displays quick-glance summary cards showing the number of sessions and the total time spent for the selected date.
+
 
 import SwiftUI
 
+// MARK: - 📋 SummaryCardsSection
 struct SummaryCardsSection: View {
     let sessionCount: Int
     let totalTimeFormatted: String
@@ -19,6 +22,7 @@ struct SummaryCardsSection: View {
     }
 }
 
+// MARK: - 📋 SummaryCard
 struct SummaryCard: View {
     let title: String
     let value: String

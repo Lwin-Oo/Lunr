@@ -4,9 +4,18 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This file loads all saved Goal-Roadmap pairs from disk by matching goal files with their corresponding roadmap files.
+//  It decodes the goal and roadmap JSON files and returns them in tuples for rendering and planning.
+//
 
 import Foundation
 
+// MARK: - 📦 Load All Goal + Roadmap Pairs
+
+/// Loads all saved `Goal` and `Roadmap` pairs from disk.
+/// Each roadmap is matched to its goal via the goal's UUID.
+///
+/// - Parameter onUpdate: A closure that receives the list of matched `(Goal, Roadmap)` pairs.
 func loadAllGoalRoadmaps(
     onUpdate: @escaping (_ goalRoadmaps: [(Goal, Roadmap)]) -> Void
 ) {

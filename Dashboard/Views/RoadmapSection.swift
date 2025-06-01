@@ -4,9 +4,11 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This view handles the display of the goal roadmaps, including each step's details, progress indication, and associated tool usage requirements. It also shows a side panel with a daily encouragement message if available.
 
 import SwiftUI
 
+// MARK: - 🗺️ RoadmapSection
 struct RoadmapSection: View {
     @Binding var goalRoadmaps: [(Goal, Roadmap)]
     @Binding var expandedStepsByGoal: [UUID: Set<UUID>]

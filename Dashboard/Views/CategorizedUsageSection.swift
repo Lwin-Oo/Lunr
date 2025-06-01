@@ -4,10 +4,15 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This view displays a breakdown of screen time usage by category.
+//  If session data is available, it renders a donut chart using `UsageDonutChartView`.
+//  Otherwise, it shows a fallback message.
+//
 
 import SwiftUI
 import Charts
 
+// MARK: - 📊 CategorizedUsageSection
 struct CategorizedUsageSection: View {
     let sessions: [DailyAppSession]
 

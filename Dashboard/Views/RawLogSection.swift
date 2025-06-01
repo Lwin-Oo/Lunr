@@ -4,9 +4,12 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This section provides developer-level utilities for accessing logs and deleting user data.
+//
 
 import SwiftUI
 
+// MARK: - 🧾 RawLogSection
 struct RawLogSection: View {
     let openLogInFinder: () -> Void
     let destroyUserData: () -> Void

@@ -4,9 +4,13 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This view displays the header section of the dashboard,
+//  showing the user's name, current goal, and countdown to deadline (if available).
+//
 
 import SwiftUI
 
+// MARK: - 👤 HeaderSection
 struct HeaderSection: View {
     let user: User?
     let goal: Goal?

@@ -4,15 +4,20 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+// This view visualizes categorized app usage time in a donut chart. It allows users to tap on chart segments to view breakdowns by app within each category.
+
 import SwiftUI
 import Charts
 
+// MARK: - 🧱 BreakdownItem
+/// Represents a single app usage entry used in breakdown views under a selected category.
 struct BreakdownItem: Identifiable {
     let id = UUID()
     let app: String
     let duration: TimeInterval
 }
 
+// MARK: - 🍩 UsageDonutChartView
 struct UsageDonutChartView: View {
     let sessions: [DailyAppSession]
     @State private var selectedCategory: String?

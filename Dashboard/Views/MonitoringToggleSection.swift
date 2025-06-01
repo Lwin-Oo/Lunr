@@ -4,9 +4,12 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This view handles the display and toggling of the screen monitoring feature.
+//
 
 import SwiftUI
 
+// MARK: - 🖥 MonitoringToggleSection
 struct MonitoringToggleSection: View {
     let isMonitoring: Bool
     let toggleMonitoring: () -> Void

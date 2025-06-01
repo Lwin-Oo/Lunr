@@ -4,11 +4,17 @@
 //
 //  Created by Lwin Oo on 5/19/25.
 //
+//  This is the main dashboard view of Lunr OS.
+//  It coordinates all sections including usage stats, goal roadmaps,
+//  monitoring controls, calendar picker, and raw data access.
+//  The dashboard also fetches user reflections and dynamically displays AI-generated encouragement.
+//
 
 import SwiftUI
 import Charts
 import Foundation
 
+// MARK: - 🧠 LunrDashboard Main View
 struct LunrDashboard: View {
     @ObservedObject private var userManager = UserManager.shared
     @State private var selectedDate = Date()
@@ -49,7 +55,11 @@ struct LunrDashboard: View {
                 fetchGoalRoadmaps()
                 isMonitoring = MonitoringEngine.shared.isRunning
                 startCountdown()
-                startFileWatcher(for: selectedDate)
+                
+                fileWatcher?.cancel()
+                fileWatcher = startFileWatcher(for: selectedDate) {
+                    self.fetchUsageData(for: selectedDate)
+                }
                 
                 WeatherManager.shared.fetchWeather { weatherData in
                     guard let weather = weatherData else {
@@ -72,76 +82,18 @@ struct LunrDashboard: View {
                 }
             }
             
-            .onChange(of: selectedDate) {
-                fetchUsageData(for: $0)
-                startFileWatcher(for: $0)
+            .onChange(of: selectedDate) { newDate in
+                fetchUsageData(for: newDate)
+                fileWatcher?.cancel()
+                fileWatcher = startFileWatcher(for: newDate) {
+                    self.fetchUsageData(for: newDate)
+                }
             }
             
         }
     }
     
-    private func startFileWatcher(for date: Date) {
-        let fileManager = FileManager.default
-        let dir = fileManager
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Lunr/Screentime")
-        
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M-d-yy"
-        let filename = formatter.string(from: date) + ".json"
-        let path = dir.appendingPathComponent(filename)
-        
-        guard FileManager.default.fileExists(atPath: path.path) else {
-            print("❌ File does not exist: \(path.path)")
-            return
-        }
-        
-        let fileDescriptor = open(path.path, O_EVTONLY)
-        guard fileDescriptor != -1 else {
-            print("❌ Failed to open file descriptor.")
-            return
-        }
-        
-        fileWatcher?.cancel() // Cancel previous watcher if it exists
-        
-        fileWatcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: .write,
-            queue: DispatchQueue.main
-        )
-        
-        fileWatcher?.setEventHandler {
-            DispatchQueue.main.async {
-                print("🔁 Detected change to \(filename). Reloading data...")
-                self.fetchUsageData(for: date)
-            }
-        }
-        
-        fileWatcher?.setCancelHandler {
-            close(fileDescriptor)
-        }
-        
-        fileWatcher?.resume()
-    }
-    
-    private func currentRoadmapStepIndex(for roadmap: Roadmap) -> Int? {
-        var accumulatedDays = 0
-        let now = Date()
-        
-        for (index, step) in roadmap.steps.enumerated() {
-            let stepStart = Calendar.current.date(byAdding: .day, value: accumulatedDays, to: roadmap.createdAt) ?? roadmap.createdAt
-            accumulatedDays += step.durationDays
-            let stepEnd = Calendar.current.date(byAdding: .day, value: step.durationDays, to: stepStart) ?? stepStart
-            
-            if now >= stepStart && now < stepEnd {
-                return index
-            }
-        }
-        
-        return nil
-    }
-    
-    
+    // MARK: - ⏳ Countdown Timer
     private func startCountdown() {
         
         countdownTimer?.invalidate()
@@ -181,57 +133,7 @@ struct LunrDashboard: View {
         }
     }
     
-    
-    
-    private func countdownText(from deadlineString: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        
-        // Try parsing string as exact date first (if you later use exact dates)
-        if let date = formatter.date(from: deadlineString) {
-            let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
-            return daysLeft > 0 ? "\(daysLeft) days left" : "⏳ Deadline passed"
-        }
-        
-        // If using freeform like "3 months", show it as-is
-        return "⏱ \(deadlineString)"
-    }
-    
-    private func parseDuration(_ input: String) -> TimeInterval? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        print("🔍 Cleaned input: '\(trimmed)'")
-        
-        // Replace "a" or "an" with 1
-        let normalized = trimmed
-            .replacingOccurrences(of: #"(^|\s)(a|an)(?=\s)"#, with: "$11", options: .regularExpression)
-        
-        let regex = try! NSRegularExpression(pattern: #"(\d+)\s*(day|week|month)s?"#, options: [])
-        
-        if let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)) {
-            let valueRange = Range(match.range(at: 1), in: normalized)
-            let unitRange = Range(match.range(at: 2), in: normalized)
-            
-            if let valueStr = valueRange.map({ String(normalized[$0]) }),
-               let unit = unitRange.map({ String(normalized[$0]) }),
-               let value = Int(valueStr) {
-                switch unit {
-                case "day": return TimeInterval(value * 86400)
-                case "week": return TimeInterval(value * 7 * 86400)
-                case "month": return TimeInterval(value * 30 * 86400)
-                default:
-                    print("❌ Unknown unit: \(unit)")
-                    return nil
-                }
-            }
-        }
-        
-        print("❌ Could not parse duration from '\(normalized)'")
-        return nil
-    }
-    
-    
-    // MARK: - Header
-    
+    // MARK: - 🧠 Header Section
     private var headerSection: some View {
         HeaderSection(
             user: userManager.currentUser,
@@ -241,11 +143,9 @@ struct LunrDashboard: View {
     }
     
     
-    // MARK: - Roadmap
+    // MARK: - 🗺️ Roadmap Section
     @State private var goalRoadmaps: [(Goal, Roadmap)] = []
     @State private var expandedStepsByGoal: [UUID: Set<UUID>] = [:]
-    
-    
     private var roadmapSection: some View {
         RoadmapSection(
             goalRoadmaps: $goalRoadmaps,
@@ -258,7 +158,7 @@ struct LunrDashboard: View {
         )
     }
     
-    // MARK: - MonitoringEngine Toggler
+    // MARK: - ⚙️ Monitoring Toggle Section
     private var monitoringToggleSection: some View {
         MonitoringToggleSection(
             isMonitoring: isMonitoring,
@@ -267,7 +167,7 @@ struct LunrDashboard: View {
     }
     
     
-    // MARK: - Calendar
+    // MARK: - 📅 Calendar Section
     private var calendarPickerSection: some View {
         CalendarPickerSection(
             selectedDate: $selectedDate,
@@ -276,7 +176,7 @@ struct LunrDashboard: View {
     }
     
     
-    // MARK: - Summary
+    // MARK: - 🧾 Summary Cards Section
     private var summaryCardsSection: some View {
         SummaryCardsSection(
             sessionCount: usageData.count,
@@ -284,12 +184,12 @@ struct LunrDashboard: View {
         )
     }
     
-    // MARK: - Categorized Usage Details
+    // MARK: - 📊 Categorized Usage Section
     private var categorizedUsageSection: some View {
         CategorizedUsageSection(sessions: usageData)
     }
     
-    // MARK: - Raw Logs
+    // MARK: - 🪵 Raw Log Section
     private var rawLogSection: some View {
         RawLogSection(
             openLogInFinder: openLogInFinder,
@@ -297,7 +197,7 @@ struct LunrDashboard: View {
         )
     }
     
-    // MARK: - Build Step Views
+    // MARK: - 🏗️ Build Roadmap Step Views
     private func buildStepViews(goal: Goal, roadmap: Roadmap) -> some View {
         BuildStepViews(
             goal: goal,
@@ -310,7 +210,7 @@ struct LunrDashboard: View {
         )
     }
     
-    
+    // MARK: - 🚀 Monitoring Control
     private func toggleMonitoring() {
         handleMonitoringToggle(
             isMonitoring: &isMonitoring,
@@ -320,13 +220,12 @@ struct LunrDashboard: View {
     }
     
     
-    
+    // MARK: - 📥 Data Loaders
     private func fetchUsageData(for date: Date) {
         loadData(for: date) { sessions in
             usageData = sessions
         }
     }
-    
     private func fetchGoal(for user: User) {
         if let loadedGoal = loadGoal(for: user) {
             // Do something like assign it to a @State variable
@@ -336,8 +235,6 @@ struct LunrDashboard: View {
             print("❌ No goal found")
         }
     }
-    
-    
     private func fetchGoalRoadmaps() {
         loadAllGoalRoadmaps { pairs in
             goalRoadmaps = pairs
@@ -345,26 +242,18 @@ struct LunrDashboard: View {
         }
     }
     
-    
+    // MARK: - 📂 Log Actions
     private func openLogInFinder() {
         openLogFile(for: selectedDate)
     }
     
-    
-    private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M-d-yy"
-        return formatter.string(from: date)
-    }
-    
-    
-    
+    // MARK: - ⏱️ Time Formatting
     private func formattedTotalTime() -> String {
         let totalSeconds = usageData.map(\.durationSeconds).reduce(0, +)
         return formattedTime(totalSeconds)
     }
     
-    
+    // MARK: - 🧹 Reset User Data
     private func destroyUserData() {
         guard let user = userManager.currentUser else { return }
         
@@ -380,30 +269,4 @@ struct LunrDashboard: View {
         userManager.isUserLoaded = true // reset so onboarding shows
     }
     
-    
-}
-
-// MARK: - Helper Functions
-func formatDuration(_ d: TimeInterval) -> String {
-    let m = Int(d) / 60, h = m / 60, r = m % 60
-    return h > 0 ? "\(h)h \(r)m" : "\(r)m"
-}
-
-func mapToMainCategory(_ c: String) -> String {
-    let l = c.lowercased()
-    if l.contains("code") || l.contains("design") || l.contains("writing") || l.contains("productive") {
-        return "Productivity"
-    } else if l.contains("entertainment") || l.contains("gaming") || l.contains("social") {
-        return "Entertainment"
-    }
-    return "Utils"
-}
-
-func colorForMainCategory(_ cat: String) -> Color {
-    switch cat {
-    case "Productivity": return .blue
-    case "Entertainment": return .orange
-    case "Utils": return .gray
-    default: return .black
-    }
 }

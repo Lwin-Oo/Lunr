@@ -4,9 +4,20 @@
 //
 //  Created by Lwin Oo on 5/31/25.
 //
+//  This file contains logic for transforming raw session data into
+//  grouped and formatted usage metrics by category and app.
+//
 
 import Foundation
 
+// MARK: - 📊 Format Session Usage Data
+
+/// Converts an array of `DailyAppSession` into a structured format,
+/// aggregating usage by category and individual apps.
+/// - Parameter sessions: Array of session data for a selected day.
+/// - Returns: A tuple containing:
+///   - `data`: An array of category summaries with app breakdowns.
+///   - `total`: The total time spent across all sessions in minutes.
 func formattedUsageData(from sessions: [DailyAppSession]) -> (
     data: [(category: String, total: Double, apps: [(name: String, windowTitle: String, duration: Double)])],
     total: Double
