@@ -11,12 +11,21 @@
 import Foundation
 import SwiftUI
 
-// MARK: - ⏱ Duration Formatter
+// MARK: - ⏱ Format Duration to "Xm Ys"
 
-/// Formats a TimeInterval (in seconds) into a human-readable string like "2h 15m" or "5m".
+/// Formats duration into a "Xm Ys" or "Xs" format.
+/// - Parameter duration: TimeInterval in seconds.
+/// - Returns: A string like "2m 33s" or "45s"
 public func formatDuration(_ d: TimeInterval) -> String {
-    let m = Int(d) / 60, h = m / 60, r = m % 60
-    return h > 0 ? "\(h)h \(r)m" : "\(r)m"
+    let totalSeconds = Int(d)
+    let minutes = totalSeconds / 60
+    let seconds = totalSeconds % 60
+
+    if minutes > 0 {
+        return "\(minutes)m \(seconds)s"
+    } else {
+        return "\(seconds)s"
+    }
 }
 
 // MARK: - 🧠 Category Mapping
