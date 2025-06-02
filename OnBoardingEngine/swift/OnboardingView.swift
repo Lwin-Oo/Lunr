@@ -116,18 +116,12 @@ struct OnboardingView: View {
             UserManager.shared.saveUser(user)
             GoalManager.saveGoal(goal)
 
-            RoadmapBuilder.buildRoadmap(for: user, goal: goal) { steps in
-                let roadmap = Roadmap(
-                    id: UUID(),
-                    goalId: goal.id,
-                    createdAt: Date(),
-                    steps: steps
-                )
-                RoadmapManager.saveRoadmap(roadmap)
+            RoadmapBuilder.buildRoadmap(for: user, goal: goal) { _ in
                 DispatchQueue.main.async {
                     shouldNavigate = true
                 }
             }
+
 
         } else {
             step += 1

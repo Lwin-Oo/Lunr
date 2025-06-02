@@ -5,7 +5,6 @@
 //  Created by Lwin Oo on 5/24/25.
 //
 
-
 import Foundation
 
 class RoadmapBuilder {
@@ -34,6 +33,25 @@ class RoadmapBuilder {
 
         print("🧠 Sending Prompt to AI:\n\(prompt)\n")
 
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Lunr/Roadmaps", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("\(goal.id.uuidString).json")
+
+        // 🔒 FIXED: Always reuse existing roadmap ID and prevent overwrite
+        var existingRoadmap: Roadmap?
+        var roadmapId: UUID = UUID()
+
+        if FileManager.default.fileExists(atPath: path.path),
+           let data = try? Data(contentsOf: path),
+           let decoded = try? JSONDecoder().decode(Roadmap.self, from: data) {
+            existingRoadmap = decoded
+            roadmapId = decoded.id
+            print("🔁 Reusing existing roadmapId: \(roadmapId) for goalId: \(goal.id)")
+        } else {
+            print("🆕 Generated NEW roadmapId: \(roadmapId) for goalId: \(goal.id)")
+        }
+
         queryLLM(prompt: prompt) { raw in
             print("📥 Raw AI Response:\n\(raw)\n")
 
@@ -46,7 +64,41 @@ class RoadmapBuilder {
             do {
                 let steps = try JSONDecoder().decode([RoadmapStep].self, from: data)
                 print("✅ Successfully decoded roadmap steps")
+
+                // Check if we already have the same steps, avoid regenerating
+                if let existing = existingRoadmap,
+                   existing.steps.map(\.title) == steps.map(\.title) {
+                    print("🚫 Existing roadmap matches AI response. Skipping overwrite + progression.")
+                    completion(existing.steps)
+                    return
+                }
+
+                let roadmap = Roadmap(
+                    id: roadmapId,
+                    goalId: goal.id,
+                    createdAt: Date(),
+                    steps: steps
+                )
+
+                print("📦 Preparing to save ROADMAP")
+                print("🧭 goalId: \(goal.id)")
+                print("🧭 roadmapId: \(roadmapId)")
+                print("📂 Target path: \(path.path)")
+
+                RoadmapManager.saveRoadmap(roadmap)
+
+                var stepRequirements: [UUID: [ToolUsageRequirement]] = [:]
+                let dailyCommitment = Int(goal.dailyTime) ?? 1
+                for step in roadmap.steps {
+                    stepRequirements[step.id] = ProgressionEngine.generateRequirements(
+                        for: step,
+                        dailyCommitmentHours: dailyCommitment
+                    )
+                }
+
+                BridgeEngine.createProgressionFile(from: roadmap, stepRequirements: stepRequirements)
                 completion(steps)
+
             } catch {
                 print("⚠️ Failed to decode roadmap steps: \(error)")
                 completion([])
@@ -77,3 +129,4 @@ class RoadmapBuilder {
         }.resume()
     }
 }
+

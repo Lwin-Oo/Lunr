@@ -77,13 +77,28 @@ struct RoadmapSection: View {
                                             Divider().padding(.vertical, 4)
                                             Text("📈 Required Tool Usage").font(.caption).bold()
 
+                                            let toolProgressList = ProgressionManager.loadProgression(for: roadmap.id)
+
                                             ForEach(requirements, id: \.id) { req in
-                                                HStack {
-                                                    Text("• \(req.toolName)").font(.caption2)
-                                                    Spacer()
-                                                    Text("🎯 \(req.requiredHours) hrs").font(.caption2).foregroundColor(.gray)
+                                                let progress = toolProgressList.first { $0.toolName == req.toolName }?.progress ?? 0
+                                                let completed = Int(progress / 3600)  // seconds to hours
+                                                let percent = min(Double(completed) / Double(req.requiredHours), 1.0)
+
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    HStack {
+                                                        Text("• \(req.toolName)").font(.caption2)
+                                                        Spacer()
+                                                        Text("\(completed) / \(req.requiredHours) hrs")
+                                                            .font(.caption2)
+                                                            .foregroundColor(.gray)
+                                                    }
+
+                                                    ProgressView(value: percent)
+                                                        .frame(height: 4)
+                                                        .accentColor(.blue)
                                                 }
                                             }
+
                                         }
                                         .padding(.top, 4)
                                     },

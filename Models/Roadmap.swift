@@ -30,15 +30,29 @@ struct RoadmapStep: Codable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, durationDays, toolsOrResources, description
+        case id
+        case title
+        case durationDays
+        case toolsOrResources
+        case description
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = UUID()
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         self.title = try container.decode(String.self, forKey: .title)
         self.durationDays = try container.decode(Int.self, forKey: .durationDays)
         self.toolsOrResources = try container.decode([String].self, forKey: .toolsOrResources)
         self.description = try container.decode(String.self, forKey: .description)
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(durationDays, forKey: .durationDays)
+        try container.encode(toolsOrResources, forKey: .toolsOrResources)
+        try container.encode(description, forKey: .description)
+    }
 }
+
