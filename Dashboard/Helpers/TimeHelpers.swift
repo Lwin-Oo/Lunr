@@ -32,3 +32,44 @@ private func formattedDate(_ date: Date) -> String {
     formatter.dateFormat = "M-d-yy"
     return formatter.string(from: date)
 }
+
+// MARK: - 🔢 Format Duration from Days to Readable Time for RoadMap
+
+/// Converts a duration in fractional days into a human-readable time string
+/// (e.g., "2 hrs 30 min", "1 hr", or "45 min").
+/// - Parameter days: The duration in days (can be fractional, e.g., 0.1).
+/// - Returns: A formatted string representing the equivalent time in hours and minutes.
+func formatDurationDays(_ days: Double) -> String {
+    let totalMinutes = Int(days * 24 * 60)
+    let hours = totalMinutes / 60
+    let minutes = totalMinutes % 60
+
+    if hours > 0 && minutes > 0 {
+        return "\(hours) hr\(hours > 1 ? "s" : "") \(minutes) min"
+    } else if hours > 0 {
+        return "\(hours) hr\(hours > 1 ? "s" : "")"
+    } else {
+        return "\(minutes) min"
+    }
+}
+
+// MARK: - 🔢 Format Duration from Hours to Readable Time for Progression
+
+/// Converts a time in hours (Double) to a readable "X hr Y min" format.
+/// - Parameter hours: Time in hours.
+/// - Returns: A string like "1 hr 15 min"
+func formatHoursMinutes(_ hours: Double) -> String {
+    let totalMinutes = Int(hours * 60)
+    let hrs = totalMinutes / 60
+    let mins = totalMinutes % 60
+
+    if hrs > 0 && mins > 0 {
+        return "\(hrs) hr\(hrs > 1 ? "s" : "") \(mins) min"
+    } else if hrs > 0 {
+        return "\(hrs) hr\(hrs > 1 ? "s" : "")"
+    } else {
+        return "\(mins) min"
+    }
+}
+
+

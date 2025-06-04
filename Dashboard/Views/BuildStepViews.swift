@@ -22,7 +22,7 @@ struct BuildStepViews: View {
                 var current = roadmap.createdAt
                 for step in roadmap.steps {
                     result.append((step, current))
-                    current = Calendar.current.date(byAdding: .day, value: step.durationDays, to: current) ?? current
+                    current = current.addingTimeInterval(step.durationDays * 86400) // Convert days to seconds
                 }
                 return result
             }()

@@ -20,10 +20,12 @@ func computeStepStartDates(for roadmap: Roadmap) -> [(RoadmapStep, Date)] {
     var currentDate = roadmap.createdAt
     for step in roadmap.steps {
         dates.append((step, currentDate))
-        currentDate = Calendar.current.date(byAdding: .day, value: step.durationDays, to: currentDate) ?? currentDate
+        let seconds = step.durationDays * 86400  // 1 day = 86400 seconds
+        currentDate = currentDate.addingTimeInterval(seconds)
     }
     return dates
 }
+
 
 // MARK: - 🧭 Current Roadmap Step Index
 
@@ -31,18 +33,19 @@ func computeStepStartDates(for roadmap: Roadmap) -> [(RoadmapStep, Date)] {
 /// - Parameter roadmap: The roadmap with its steps and creation date.
 /// - Returns: The index of the current roadmap step, or `nil` if none is currently active.
 func currentRoadmapStepIndex(for roadmap: Roadmap) -> Int? {
-    var accumulatedDays = 0
     let now = Date()
-    
+    var currentStart = roadmap.createdAt
+
     for (index, step) in roadmap.steps.enumerated() {
-        let stepStart = Calendar.current.date(byAdding: .day, value: accumulatedDays, to: roadmap.createdAt) ?? roadmap.createdAt
-        accumulatedDays += step.durationDays
-        let stepEnd = Calendar.current.date(byAdding: .day, value: step.durationDays, to: stepStart) ?? stepStart
-        
-        if now >= stepStart && now < stepEnd {
+        let stepEnd = currentStart.addingTimeInterval(step.durationDays * 86400) // 86400 secs in a day
+
+        if now >= currentStart && now < stepEnd {
             return index
         }
+
+        currentStart = stepEnd
     }
-    
+
     return nil
 }
+

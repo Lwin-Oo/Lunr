@@ -17,11 +17,11 @@ struct Roadmap: Codable, Identifiable {
 struct RoadmapStep: Codable, Identifiable {
     let id: UUID
     let title: String
-    let durationDays: Int
+    let durationDays: Double
     let toolsOrResources: [String]
     let description: String
 
-    init(id: UUID = UUID(), title: String, durationDays: Int, toolsOrResources: [String], description: String) {
+    init(id: UUID = UUID(), title: String, durationDays: Double, toolsOrResources: [String], description: String) {
         self.id = id
         self.title = title
         self.durationDays = durationDays
@@ -41,7 +41,7 @@ struct RoadmapStep: Codable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         self.title = try container.decode(String.self, forKey: .title)
-        self.durationDays = try container.decode(Int.self, forKey: .durationDays)
+        self.durationDays = try container.decode(Double.self, forKey: .durationDays)
         self.toolsOrResources = try container.decode([String].self, forKey: .toolsOrResources)
         self.description = try container.decode(String.self, forKey: .description)
     }
@@ -55,4 +55,3 @@ struct RoadmapStep: Codable, Identifiable {
         try container.encode(description, forKey: .description)
     }
 }
-

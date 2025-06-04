@@ -9,7 +9,7 @@ import Foundation
 
 struct ToolProgress: Codable {
     let toolName: String
-    let requiredHours: Int
+    let requiredHours: Double
     var progress: TimeInterval = 0  // in seconds
 }
 

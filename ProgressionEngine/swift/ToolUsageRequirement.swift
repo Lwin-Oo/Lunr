@@ -10,11 +10,11 @@ import Foundation
 struct ToolUsageRequirement: Codable, Identifiable {
     let id = UUID()
     let toolName: String
-    let requiredHours: Int
+    let requiredHours: Double
     var loggedHours: Int = 0
 
     var isComplete: Bool {
-        loggedHours >= requiredHours
+        Double(loggedHours) >= requiredHours
     }
 
     var progressPercent: Double {

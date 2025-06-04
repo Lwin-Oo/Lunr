@@ -37,7 +37,7 @@ struct RoadmapSection: View {
                                 var current = roadmap.createdAt
                                 for step in roadmap.steps {
                                     dates.append((step, current))
-                                    current = Calendar.current.date(byAdding: .day, value: step.durationDays, to: current) ?? current
+                                    current = Calendar.current.date(byAdding: .day, value: Int(step.durationDays), to: current) ?? current
                                 }
                                 return dates
                             }()
@@ -70,7 +70,7 @@ struct RoadmapSection: View {
                                     ),
                                     content: {
                                         VStack(alignment: .leading, spacing: 6) {
-                                            Text("⏱ \(step.durationDays) days").font(.caption)
+                                            Text("⏱ \(formatDurationDays(step.durationDays))").font(.caption)
                                             Text("📦 \(step.toolsOrResources.joined(separator: ", "))").font(.caption)
                                             Text(step.description).font(.caption2).foregroundColor(.gray)
 
@@ -81,14 +81,16 @@ struct RoadmapSection: View {
 
                                             ForEach(requirements, id: \.id) { req in
                                                 let progress = toolProgressList.first { $0.toolName == req.toolName }?.progress ?? 0
-                                                let completed = Int(progress / 3600)  // seconds to hours
-                                                let percent = min(Double(completed) / Double(req.requiredHours), 1.0)
+                                                let completedHours = progress / 3600  // full double value
+                                                let percent = min(completedHours / req.requiredHours, 1.0)
+
 
                                                 VStack(alignment: .leading, spacing: 4) {
                                                     HStack {
                                                         Text("• \(req.toolName)").font(.caption2)
                                                         Spacer()
-                                                        Text("\(completed) / \(req.requiredHours) hrs")
+                                                        Text("\(formatHoursMinutes(completedHours)) / \(formatHoursMinutes(req.requiredHours))")
+                            
                                                             .font(.caption2)
                                                             .foregroundColor(.gray)
                                                     }

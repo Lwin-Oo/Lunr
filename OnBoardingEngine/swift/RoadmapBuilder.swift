@@ -14,19 +14,31 @@ class RoadmapBuilder {
 
         Each roadmap step should include:
         - title (string)
-        - durationDays (int)
+        - durationDays (decimal number, e.g., 0.5 means 12 hours)
         - toolsOrResources (array of strings)
         - description (1-2 sentence summary)
 
         Respond ONLY with the raw JSON array. Do not include any explanation or extra characters.
         """
 
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d, yyyy"
+        let now = Date()
+        let deadlineDate = parseDeadline(from: goal.targetDeadline, now: now)
+        let daysUntilDeadline = max(Calendar.current.dateComponents([.day], from: now, to: deadlineDate).day ?? 1, 1)
+
+        let dailyHours = Int(goal.dailyTime.filter("0123456789".contains)) ?? 1
+        let totalAvailableHours = daysUntilDeadline * dailyHours
+
         let userData = """
         User Goal: \(goal.title)
-        Target Deadline: \(goal.targetDeadline)
-        Realistic Estimate: \(goal.realisticEstimate)
-        Time Available Per Day: \(goal.dailyTime)
+        Target Deadline: \(goal.targetDeadline) (\(formatter.string(from: deadlineDate)))
+        You have \(daysUntilDeadline) day(s) until the deadline.
+        Time Available Per Day: \(dailyHours) hours
+        Total Available Time Budget: \(totalAvailableHours) hours
         Current Job: \(user.career)
+
+        Build a roadmap that fits within this total time budget.
         """
 
         let prompt = "\(systemPrompt)\n\n\(userData)"
@@ -128,5 +140,21 @@ class RoadmapBuilder {
             completion(result.response.trimmingCharacters(in: .whitespacesAndNewlines))
         }.resume()
     }
+    
+    private static func parseDeadline(from input: String, now: Date) -> Date {
+        let lowercased = input.lowercased()
+        if lowercased.contains("day") {
+            return Calendar.current.date(byAdding: .day, value: 1, to: now)!
+        } else if lowercased.contains("week") {
+            return Calendar.current.date(byAdding: .day, value: 7, to: now)!
+        } else if lowercased.contains("month") {
+            return Calendar.current.date(byAdding: .month, value: 1, to: now)!
+        } else if lowercased.contains("year") {
+            return Calendar.current.date(byAdding: .year, value: 1, to: now)!
+        } else {
+            return Calendar.current.date(byAdding: .day, value: 7, to: now)! // fallback
+        }
+    }
 }
+
 

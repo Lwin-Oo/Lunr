@@ -9,9 +9,8 @@ import Foundation
 
 class ProgressionEngine {
     static func generateRequirements(for step: RoadmapStep, dailyCommitmentHours: Int) -> [ToolUsageRequirement] {
-        let totalDays = step.durationDays
-        let totalAvailableHours = totalDays * dailyCommitmentHours
-        let perToolHours = totalAvailableHours / max(step.toolsOrResources.count, 1)
+        let totalAvailableHours = step.durationDays * 24
+        let perToolHours = totalAvailableHours / max(Double(step.toolsOrResources.count), 1)
 
         return step.toolsOrResources.map {
             ToolUsageRequirement(toolName: $0, requiredHours: perToolHours)
@@ -23,3 +22,4 @@ class ProgressionEngine {
         requirements[index].loggedHours += additionalHours
     }
 }
+
