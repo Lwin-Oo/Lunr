@@ -31,8 +31,13 @@ class BridgeEngine {
             entries: allToolEntries
         )
 
+        // 🔗 Configure ToolProgressTracker
+        ToolProgressTracker.shared.configure(with: progression)
+        ToolProgressTracker.shared.startAutoSave()
+
         saveProgression(progression)
     }
+
 
     private static func saveProgression(_ progression: RoadmapProgression) {
         let fileManager = FileManager.default

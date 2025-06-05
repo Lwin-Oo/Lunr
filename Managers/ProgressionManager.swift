@@ -22,6 +22,10 @@ class ProgressionManager {
             return []
         }
 
+        // ✅ Inject loaded progression into ToolProgressTracker
+        ToolProgressTracker.shared.configure(with: progression)
+
         return progression.entries
     }
 }
+

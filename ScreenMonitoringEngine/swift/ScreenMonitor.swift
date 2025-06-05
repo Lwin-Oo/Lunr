@@ -163,44 +163,57 @@ final class MonitoringEngine {
     }
 
     private func saveSession(app: String, title: String, start: Date, end: Date, category: String) {
-            let calendar = Calendar.current
-            let fileName = DateFormatter.localizedString(from: start, dateStyle: .short, timeStyle: .none)
-                .replacingOccurrences(of: "/", with: "-")
-            let jsonFile = baseDirectory.appendingPathComponent("\(fileName).json")
-            let startHour = calendar.component(.hour, from: start)
-            let periodLabel = String(format: "%02d:00 - %02d:00", startHour, (startHour + 1) % 24)
+        let calendar = Calendar.current
+        let fileName = DateFormatter.localizedString(from: start, dateStyle: .short, timeStyle: .none)
+            .replacingOccurrences(of: "/", with: "-")
+        let jsonFile = baseDirectory.appendingPathComponent("\(fileName).json")
+        let startHour = calendar.component(.hour, from: start)
+        let periodLabel = String(format: "%02d:00 - %02d:00", startHour, (startHour + 1) % 24)
 
-            var json: [String: Any] = ["date": formattedToday(), "periods": [:]]
+        var json: [String: Any] = ["date": formattedToday(), "periods": [:]]
 
-            // ⬇️ Try to load existing JSON and merge it
-            if let data = try? Data(contentsOf: jsonFile),
-               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let existingPeriods = existing["periods"] as? [String: [[String: Any]]] {
-                json["periods"] = existingPeriods
-            }
+        // ⬇️ Try to load existing JSON and merge it
+        if let data = try? Data(contentsOf: jsonFile),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let existingPeriods = existing["periods"] as? [String: [[String: Any]]] {
+            json["periods"] = existingPeriods
+        }
 
-            var periods = json["periods"] as? [String: [[String: Any]]] ?? [:]
-            var periodSessions = periods[periodLabel] ?? []
+        var periods = json["periods"] as? [String: [[String: Any]]] ?? [:]
+        var periodSessions = periods[periodLabel] ?? []
 
-            let session: [String: Any] = [
-                "id": UUID().uuidString,
-                "classification": category,
-                "app": app,
-                "windowTitle": title,
-                "startTime": iso8601(start),
-                "endTime": iso8601(end),
-                "durationSeconds": Int(end.timeIntervalSince(start))
-            ]
+        let session: [String: Any] = [
+            "id": UUID().uuidString,
+            "classification": category,
+            "app": app,
+            "windowTitle": title,
+            "startTime": iso8601(start),
+            "endTime": iso8601(end),
+            "durationSeconds": Int(end.timeIntervalSince(start))
+        ]
 
-            periodSessions.append(session)
-            periods[periodLabel] = periodSessions
-            json["periods"] = periods
+        periodSessions.append(session)
+        periods[periodLabel] = periodSessions
+        json["periods"] = periods
 
-            if let jsonData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? jsonData.write(to: jsonFile)
-                print("✅ Appended to: \(jsonFile.path)")
-            }
+        // ⏱ Real-time session handling (in-memory before I/O)
+        let duration = end.timeIntervalSince(start)
+        ToolProgressTracker.shared.processSession(
+            app: app,
+            windowTitle: title,
+            duration: duration
+        )
+
+        // 💾 Save updated session log to disk
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: json, options: .prettyPrinted)
+            try jsonData.write(to: jsonFile)
+            print("✅ Appended to: \(jsonFile.path)")
+        } catch {
+            print("❌ Failed to write session to file: \(error)")
+        }
     }
+
 
 
     private func getFrontmostApp() -> String {

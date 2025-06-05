@@ -72,4 +72,32 @@ func formatHoursMinutes(_ hours: Double) -> String {
     }
 }
 
+// MARK: - ⏱ Format Duration from Seconds to Readable Time for Tool Progress
+
+/// Converts a duration in seconds to a readable time string
+/// (e.g., "1 hr 15 min", "30 min", or "0 min").
+/// Handles cases where progress is zero or less than a full minute.
+/// - Parameter seconds: The duration in seconds.
+/// - Returns: A formatted string representing the equivalent time in hours and minutes.
+func formatSecondsToReadable(_ seconds: TimeInterval) -> String {
+    if seconds <= 0 {
+        return "0 min"
+    }
+
+    let totalMinutes = Int(seconds / 60)
+    let hrs = totalMinutes / 60
+    let mins = totalMinutes % 60
+
+    if hrs > 0 && mins > 0 {
+        return "\(hrs) hr\(hrs > 1 ? "s" : "") \(mins) min"
+    } else if hrs > 0 {
+        return "\(hrs) hr\(hrs > 1 ? "s" : "")"
+    } else if mins > 0 {
+        return "\(mins) min"
+    } else {
+        return "<1 min"
+    }
+}
+
+
 

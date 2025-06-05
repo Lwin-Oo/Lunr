@@ -12,10 +12,15 @@ class RoadmapBuilder {
         let systemPrompt = """
         You are a productivity coach. Given the following user data, generate a JSON array of roadmap steps to help them reach their goal.
 
+        Each step must:
+        - Be laser-focused on progress toward the stated goal.
+        - Include **real-world tools** (e.g., "Jupyter Notebook", "pandas", "Kaggle") — avoid generic or vague entries like "Internet" or "Journaling app".
+        - Avoid repetition and fluff.
+        
         Each roadmap step should include:
         - title (string)
         - durationDays (decimal number, e.g., 0.5 means 12 hours)
-        - toolsOrResources (array of strings)
+        - toolsOrResources (array of specific apps/platforms)
         - description (1-2 sentence summary)
 
         Respond ONLY with the raw JSON array. Do not include any explanation or extra characters.

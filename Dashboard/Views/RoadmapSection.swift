@@ -81,15 +81,15 @@ struct RoadmapSection: View {
 
                                             ForEach(requirements, id: \.id) { req in
                                                 let progress = toolProgressList.first { $0.toolName == req.toolName }?.progress ?? 0
-                                                let completedHours = progress / 3600  // full double value
-                                                let percent = min(completedHours / req.requiredHours, 1.0)
+                                                let percent = min(progress / (req.requiredHours * 3600), 1.0)
 
 
                                                 VStack(alignment: .leading, spacing: 4) {
                                                     HStack {
                                                         Text("• \(req.toolName)").font(.caption2)
                                                         Spacer()
-                                                        Text("\(formatHoursMinutes(completedHours)) / \(formatHoursMinutes(req.requiredHours))")
+                                                        
+                                                        Text("\(formatSecondsToReadable(progress)) / \(formatHoursMinutes(req.requiredHours))")
                             
                                                             .font(.caption2)
                                                             .foregroundColor(.gray)
