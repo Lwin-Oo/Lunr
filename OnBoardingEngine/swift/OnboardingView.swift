@@ -9,14 +9,8 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var userManager: UserManager
-
-    @State private var step = 1
-    @State private var milestone = ""
-    @State private var deadline = ""
-    @State private var estimation = ""
-    @State private var dailyTime = ""
-    @State private var career = ""
-    @State private var name = ""
+    @StateObject private var engine = OnboardingEngine()
+    @State private var userAnswer = ""
     @State private var shouldNavigate = false
 
     var body: some View {
@@ -32,73 +26,89 @@ struct OnboardingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
 
-                    ProgressView(value: Double(step), total: 6)
-                        .accentColor(.blue)
-                        .padding(.horizontal)
+                    if !engine.isComplete {
+                        ProgressView(value: Double(engine.collectedData.count), total: 9)
+                            .accentColor(.blue)
+                            .padding(.horizontal)
+                    }
 
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(questionTitle)
+                        Text(engine.currentQuestion)
                             .font(.title2.weight(.semibold))
                             .padding(.bottom, 8)
 
-                        TextField("Type your answer...", text: currentBinding)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .padding()
-                            .background(Color(NSColor.controlBackgroundColor))
-                            .cornerRadius(10)
+                        // Handle Yes/No step
+                        if engine.currentStep == .experienceCheck {
+                            HStack(spacing: 16) {
+                                Button(action: {
+                                    userAnswer = "Yes"
+                                    handleSubmit()
+                                }) {
+                                    Text("Yes")
+                                        .font(.headline)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+                                }
+
+                                Button(action: {
+                                    userAnswer = "No"
+                                    handleSubmit()
+                                }) {
+                                    Text("No")
+                                        .font(.headline)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.red)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+                                }
+                            }
+                        } else {
+                            TextField("Type your answer...", text: $userAnswer)
+                                .textFieldStyle(PlainTextFieldStyle())
+                                .padding()
+                                .background(Color(NSColor.controlBackgroundColor))
+                                .cornerRadius(10)
+                        }
                     }
                     .padding(.horizontal)
 
-                    Button(action: handleStep) {
-                        Text(step == 6 ? "Finish" : "Next")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
+                    if engine.currentStep != .experienceCheck {
+                        Button(action: handleSubmit) {
+                            Text(engine.isComplete ? "Finish" : "Next")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
+                        .disabled(userAnswer.isEmpty)
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
 
                     Spacer()
                 }
                 .frame(maxWidth: 600)
                 .padding(.top, 60)
+                .onAppear {
+                    engine.start()
+                }
             }
         }
     }
 
-    private var questionTitle: String {
-        switch step {
-        case 1: return "1. What milestone do you want to achieve?"
-        case 2: return "2. When do you want to get it done?"
-        case 3: return "3. When do you think you can realistically finish it?"
-        case 4: return "4. How much time can you commit daily?"
-        case 5: return "5. What do you currently do?"
-        case 6: return "6. Finally, what's your name?"
-        default: return ""
-        }
-    }
-
-    private var currentBinding: Binding<String> {
-        switch step {
-        case 1: return $milestone
-        case 2: return $deadline
-        case 3: return $estimation
-        case 4: return $dailyTime
-        case 5: return $career
-        case 6: return $name
-        default: return .constant("")
-        }
-    }
-
-    private func handleStep() {
-        if step == 6 {
+    private func handleSubmit() {
+        if engine.isComplete {
             let now = Date()
+            let d = engine.collectedData
 
             let user = User(
-                name: name,
-                career: career,
+                name: d["name"] ?? "Unknown",
+                career: d["career"] ?? "Unknown",
                 createdAt: now,
                 lastActive: now
             )
@@ -106,14 +116,12 @@ struct OnboardingView: View {
 
             let goal = Goal(
                 id: UUID(),
-                title: milestone,
-                targetDeadline: deadline,
-                realisticEstimate: estimation,
-                dailyTime: dailyTime,
+                title: d["milestone"] ?? "",
+                targetDeadline: d["deadline"] ?? "",
+                realisticEstimate: d["estimation"] ?? "",
+                dailyTime: d["dailyTime"] ?? "",
                 createdAt: now
             )
-            
-            UserManager.shared.saveUser(user)
             GoalManager.saveGoal(goal)
 
             RoadmapBuilder.buildRoadmap(for: user, goal: goal) { _ in
@@ -121,10 +129,10 @@ struct OnboardingView: View {
                     shouldNavigate = true
                 }
             }
-
-
         } else {
-            step += 1
+            engine.submitAnswer(userAnswer)
+            userAnswer = ""
         }
     }
 }
+
