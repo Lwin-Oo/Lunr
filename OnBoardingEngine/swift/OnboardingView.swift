@@ -37,34 +37,19 @@ struct OnboardingView: View {
                             .font(.title2.weight(.semibold))
                             .padding(.bottom, 8)
 
-                        // Handle Yes/No step
                         if engine.currentStep == .experienceCheck {
                             HStack(spacing: 16) {
-                                Button(action: {
+                                Button("Yes") {
                                     userAnswer = "Yes"
                                     handleSubmit()
-                                }) {
-                                    Text("Yes")
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.green)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
                                 }
+                                .buttonStyle(ColoredButton(color: .green))
 
-                                Button(action: {
+                                Button("No") {
                                     userAnswer = "No"
                                     handleSubmit()
-                                }) {
-                                    Text("No")
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.red)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
                                 }
+                                .buttonStyle(ColoredButton(color: .red))
                             }
                         } else {
                             TextField("Type your answer...", text: $userAnswer)
@@ -90,13 +75,18 @@ struct OnboardingView: View {
                         .padding(.horizontal)
                     }
 
+                    if engine.isComplete {
+                        Button("🔁 Re-run AI Evaluation") {
+                            rerunExperienceEvaluation(from: engine.collectedData)
+                        }
+                        .padding(.top, 10)
+                    }
+
                     Spacer()
                 }
                 .frame(maxWidth: 600)
                 .padding(.top, 60)
-                .onAppear {
-                    engine.start()
-                }
+                .onAppear { engine.start() }
             }
         }
     }
@@ -124,7 +114,109 @@ struct OnboardingView: View {
             )
             GoalManager.saveGoal(goal)
 
-            RoadmapBuilder.buildRoadmap(for: user, goal: goal) { _ in
+            // ✅ Handle ExperienceProfile creation
+            let experience: ExperienceProfile
+            if let existing = ExperienceProfileManager.load(for: user.name) {
+                experience = existing
+            } else if d["experienceLink"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "no" {
+                // User typed "No" in portfolio link step
+                experience = ExperienceProfile(
+                    userName: user.name,
+                    experienceLevel: "Beginner",
+                    skillSets: [],
+                    domain: "Unknown",
+                    justification: "User reported no portfolio or project link.",
+                    generatedAt: now
+                )
+                ExperienceProfileManager.save(experience)
+                print("✅ Skipped scraping. Default beginner profile saved for \(user.name)")
+            } else if let link = d["experienceLink"], let desc = d["experienceDesc"] {
+                // 👉 Scrape and evaluate experience
+                let semaphore = DispatchSemaphore(value: 0)
+                var evaluatedProfile: ExperienceProfile?
+
+                UniversalScraper.scrape(urlString: link) { result in
+                    guard let content = result else {
+                        print("⚠️ Could not scrape content at \(link)")
+                        semaphore.signal()
+                        return
+                    }
+
+                    let prompt = """
+                    You are a senior evaluator and mentor.
+
+                    A user has submitted this project link: \(link)
+                    They described it as: "\(desc)"
+
+                    Here’s the actual content from the page:
+
+                    📄 Title: \(content.title)
+                    📄 Meta Description: \(content.description)
+                    📝 Body Text Snippet:
+                    \(content.bodyText)
+
+                    Now, step by step:
+                    1. What is the content about?
+                    2. What domain is it in? (tech, art, music, writing, etc.)
+                    3. Evaluate quality and depth
+                    4. Rate skill level: Beginner / Intermediate / Advanced
+
+                    Then summarize:
+                    - Domain
+                    - Skill Set / Focus Areas
+                    - Experience Level
+                    - Justification in one line
+
+                    Return only your reasoning and decision log.
+                    """
+
+                    LLMClient.query(prompt: prompt) { result in
+                        let domain = result.extractField(named: "Domain")
+                        let skills = result.extractList(named: "Skill Set", separator: ",")
+                        let level = result.extractField(named: "Experience Level")
+                        let justification = result.extractField(named: "Justification")
+
+                        evaluatedProfile = ExperienceProfile(
+                            userName: user.name,
+                            experienceLevel: level,
+                            skillSets: skills,
+                            domain: domain,
+                            justification: justification,
+                            generatedAt: now
+                        )
+                        if let p = evaluatedProfile {
+                            ExperienceProfileManager.save(p)
+                            print("✅ Scraped and saved experience for \(user.name)")
+                        }
+                        semaphore.signal()
+                    }
+                }
+
+                semaphore.wait()
+                experience = evaluatedProfile ?? ExperienceProfile(
+                    userName: user.name,
+                    experienceLevel: "Unknown",
+                    skillSets: [],
+                    domain: "Unknown",
+                    justification: "Scraping failed.",
+                    generatedAt: now
+                )
+            } else {
+                // 👉 Fallback to unknown experience
+                let saidNo = d["experienceCheck"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "no"
+                experience = ExperienceProfile(
+                    userName: user.name,
+                    experienceLevel: saidNo ? "Beginner" : "Unknown",
+                    skillSets: [],
+                    domain: "Unknown",
+                    justification: saidNo ? "User reported no professional experience." : "No experience data available.",
+                    generatedAt: now
+                )
+                ExperienceProfileManager.save(experience)
+            }
+
+            // ✅ Now build roadmap
+            RoadmapBuilder.buildRoadmap(for: user, goal: goal, experience: experience) { _ in
                 DispatchQueue.main.async {
                     shouldNavigate = true
                 }
@@ -133,6 +225,84 @@ struct OnboardingView: View {
             engine.submitAnswer(userAnswer)
             userAnswer = ""
         }
+    }
+
+
+    private func rerunExperienceEvaluation(from history: [String: String]) {
+        guard let link = history["experienceLink"],
+              let description = history["experienceDesc"],
+              let userName = history["name"] else {
+            print("❌ Missing required fields in history")
+            return
+        }
+
+        UniversalScraper.scrape(urlString: link) { result in
+            guard let content = result else {
+                print("⚠️ Failed to scrape content at \(link)")
+                return
+            }
+
+            let prompt = """
+            You are a senior evaluator and mentor.
+
+            A user has submitted this project link: \(link)
+            They described it as: "\(description)"
+
+            Here’s the actual content from the page:
+
+            📄 Title: \(content.title)
+            📄 Meta Description: \(content.description)
+            📝 Body Text Snippet:
+            \(content.bodyText)
+
+            Now, step by step:
+            1. What is the content about?
+            2. What domain is it in? (tech, art, music, writing, etc.)
+            3. Evaluate quality and depth
+            4. Rate skill level: Beginner / Intermediate / Advanced
+
+            Then summarize:
+            - Domain
+            - Skill Set / Focus Areas
+            - Experience Level
+            - Justification in one line
+
+            Return only your reasoning and decision log.
+            """
+
+            LLMClient.query(prompt: prompt) { result in
+                let domain = result.extractField(named: "Domain")
+                let skills = result.extractList(named: "Skill Set", separator: ",")
+                let level = result.extractField(named: "Experience Level")
+                let justification = result.extractField(named: "Justification")
+
+                let profile = ExperienceProfile(
+                    userName: userName,
+                    experienceLevel: level,
+                    skillSets: skills,
+                    domain: domain,
+                    justification: justification,
+                    generatedAt: Date()
+                )
+
+                ExperienceProfileManager.save(profile)
+                print("✅ Re-saved profile for \(userName)")
+            }
+        }
+    }
+}
+
+struct ColoredButton: ButtonStyle {
+    var color: Color
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(color)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
     }
 }
 

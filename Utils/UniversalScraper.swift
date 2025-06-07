@@ -37,7 +37,7 @@ final class UniversalScraper {
                 let result = ScrapedResult(
                     title: title,
                     description: description,
-                    bodyText: String(bodyText.prefix(3000)) // Truncate to stay under LLM limits
+                    bodyText: String(bodyText.prefix(3000)) // Shorten to stay under LLM limits
                 )
 
                 completion(result)
